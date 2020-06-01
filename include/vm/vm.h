@@ -103,6 +103,7 @@ struct lazy_file {
     size_t load_ofs;
     size_t load_read_byte;
     size_t load_zero_byte;
+    bool writable;
 };
 
 #include "threads/thread.h"

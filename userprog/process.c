@@ -35,7 +35,7 @@ struct file_descriptor* find_fd(struct list *fd_list, int fd);
 bool fd_less (const struct list_elem *a_, const struct list_elem *b_,
             void *aux UNUSED);   
 
-struct lock rox_lock;
+// struct lock rox_lock;
 /* General process initializer for initd and other process. */
 static void
 process_init (void) {
@@ -50,7 +50,7 @@ process_init (void) {
  * Notice that THIS SHOULD BE CALLED ONCE. */
 tid_t
 process_create_initd (const char *file_name) {
-    lock_init(&rox_lock);
+    // lock_init(&rox_lock);
     char *fn_copy;
 	tid_t tid;
 
@@ -171,6 +171,30 @@ __do_fork (void *aux) {
     // frame_table_init(&current -> frame_table);
 	if (!supplemental_page_table_copy (&current->spt, &parent->spt))
 		goto error;
+
+    // struct list_elem *m;
+    // struct list *parent_mm_list = &parent -> mm_list;
+    // struct list *child_mm_list = &current -> mm_list;
+
+    // for(m=list_begin(parent_mm_list);m!=list_end(parent_mm_list);m=list_next(m)) {
+    //     struct mmap_file *parent_mm = list_entry(m, struct mmap_file, mm_elem);
+    //     // struct file *f = parent_mm -> file;
+    //     struct file *child_file = parent_mm -> file;
+	// 	// if (child_file == NULL) {
+	// 	// 	goto error;
+	// 	// }
+    //     struct mmap_file *child_mm = calloc (1, sizeof(struct mmap_file));
+    //     if (child_mm == NULL) {
+	// 		goto error;
+	// 	}
+	// 	child_mm -> file = child_file;
+    //     child_mm -> addr = parent_mm -> addr;
+    //     child_mm -> mm_writable = parent_mm -> mm_writable;
+    //     child_mm -> mapped_page_list = parent_mm -> mapped_page_list;
+
+    //     list_push_back(child_mm_list, &child_mm->mm_elem);
+    // }
+
 #else
 	if (!pml4_for_each (parent->pml4, duplicate_pte, parent)) {
 		goto error;
@@ -343,14 +367,13 @@ process_exit (void) {
         list_remove(&curr->child_elem);
     }  
 
+    // //munmap the mm list
     struct list *mm_list = &thread_current() -> mm_list;
     int mm_size = list_size(mm_list);
     if(mm_size) {
         for(int i=0;i<mm_size;i++) { 
             struct mmap_file *tmp = list_entry(list_begin(mm_list), struct mmap_file, mm_elem);
             do_munmap(tmp-> addr);
-            list_pop_front(mm_list);
-            free(tmp);
         }
     } 
 
@@ -487,19 +510,22 @@ load (const char *file_name, struct intr_frame *if_) {
 		cnt++;
 	}
 
-    lock_acquire(&rox_lock);
+    // lock_acquire(&rox_lock);
+    // lock_acquire(&filesys_lock);
 	/* Open executable file. */
 	file = filesys_open (cmd_parsing[0]);
     // printf("load : %s\n", cmd_parsing[0]);
 	if (file == NULL) {
 		printf ("load: %s: open failed\n", file_name);
-        lock_release(&rox_lock);
+        // lock_release(&filesys_lock);
+        // lock_release(&rox_lock);
 		goto done;
 	}
 
     t->running_file = file;
     file_deny_write(file);
-    lock_release(&rox_lock);
+    // lock_release(&filesys_lock);
+    // lock_release(&rox_lock);
 
 	/* Read and verify executable header. */
 	if (file_read (file, &ehdr, sizeof ehdr) != sizeof ehdr
@@ -842,32 +868,40 @@ lazy_load_segment (struct page *page, void *aux) {
 	/* TODO: Load the segment from the file */
 	/* TODO: This called when the first page fault occurs on address VA. */
 	/* TODO: VA is available when calling this function. */
-
+    // lock_acquire(&filesys_lock);
     struct lazy_file *load = aux;
     void *kva = page->frame->kva;
-	// printf("lazy_load\n");
+	// printf("lazy_load÷c\n");
     if(load != NULL) { 
         page->file_data = load -> load_file;
         page->offset = load -> load_ofs;
         page->read_byte = load ->load_read_byte;
         page->zero_byte = load ->load_zero_byte;
+        page->writable = load -> writable;
         // printf("thread :%s, aux read byte : %x va :%x\n", thread_current() -> name, page -> read_byte, page->va);
     }
 
     // struct file *reopened = file_reopen(load->load_file);
 	// file_seek(reopened, load -> load_ofs);
 	// syscall_seek(load -> load_file, load->load_ofs);
-	// printf("after file seek\n");
+	
 	// off_t reads = file_read(load -> load_file, kva, load -> load_read_byte);
-	// off_t reads =file_read_at(load -> load_file, kva, load->load_read_byte, load->load_ofs);
-    // if(reads!= load->load_read_byte) {
+	off_t reads =file_read_at(load -> load_file, kva, load->load_read_byte, load->load_ofs);
+    // printf("after file seek\n");
+    if(reads!= load->load_read_byte) {
 	    // printf("read at fail read : %x, actual : %x off : %x\n", load -> load_read_byte, reads, load-> load_ofs);
-    if(file_read_at(load -> load_file, kva, load->load_read_byte, load->load_ofs) != load->load_read_byte) {
+    // lock_acquire(&filesys_lock);
+    // lock_acquire(&rox_lock);
+    // if(file_read_at(load -> load_file, kva, load->load_read_byte, load->load_ofs) != load->load_read_byte) {
         free(load);
+        // lock_release(&filesys_lock);
+        // lock_release(&rox_lock);
         return false;
     }
+    // lock_release(&filesys_lock);
     memset(kva + load->load_read_byte, 0, load->load_zero_byte);
     free(load);
+    // lock_release(&filesys_lock);
 	// printf ("finish lazy_load_segment\n");
 	return true;
 }
@@ -907,7 +941,7 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
         lazy_file -> load_ofs = ofs;
         lazy_file -> load_read_byte = page_read_bytes;
         lazy_file -> load_zero_byte = page_zero_bytes;
-
+        lazy_file -> writable = writable;
 		if (!vm_alloc_page_with_initializer (VM_ANON, upage, writable, lazy_load_segment, lazy_file)) {
             free(lazy_file);                
 			return false;

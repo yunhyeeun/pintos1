@@ -16,6 +16,7 @@ struct file_page {
 struct mmap_file {
     // int mapid;
     void *addr;
+    bool mm_writable;
     struct file *file;
     struct list_elem mm_elem;
     struct list mapped_page_list;

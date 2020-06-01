@@ -87,7 +87,7 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 
 		switch (type) {
 			case 0: {
-                newPage -> dirty = 0;
+                // newPage -> dirty = 0;
 				break;
 			}
 			case 1: {
@@ -247,11 +247,6 @@ vm_try_handle_fault (struct intr_frame *f, void *addr,
     if(not_present && is_user_vaddr(addr)) {
         // printf("not present\n");
         if(bogus == NULL) {
-            // printf("stack boundary : %x %x\n", ((uint8_t *) USER_STACK), ((uint8_t *) USER_STACK) - STACK_GROWTH_LIMIT);
-            // printf("bogus null : %x\n", addr);
-            //kill
-            // printf("bogus null\n");
-            // syscall_exit(-1);
             if(user) {
                 void *user_rsp = f -> rsp;
                 // printf("user rsp : %x\n", user_rsp);
@@ -284,10 +279,6 @@ vm_try_handle_fault (struct intr_frame *f, void *addr,
     	else {
 			//invalid page fault
 			// printf("invalid page fault\n");
-			// syscall_exit(-1);
-            // if(!bogus -> writable) {
-            //     syscall_exit(-1);
-            // }
             return vm_do_claim_page (bogus);
 		}
 		// printf("bogus va : %x ofs : %x read_byte : %x\n", bogus->va, bogus->offset, bogus->read_byte);
@@ -340,6 +331,7 @@ vm_do_claim_page (struct page *page) {
     } else {
         return false;
     }
+    pml4_set_dirty(thread_current()->pml4, page -> va, false);
     // printf("claim succ : %x, pa : %x\n", frame -> uva, frame -> kva);
 	return swap_in (page, frame->kva);
 }
@@ -375,8 +367,8 @@ supplemental_page_table_copy (struct supplemental_page_table *dst, struct supple
                     return false;
                 }
 
-                // child_aux -> load_file = parent_aux ->load_file;
-                child_aux -> load_file = file_duplicate(parent_aux ->load_file);
+                child_aux -> load_file = parent_aux ->load_file;
+                // child_aux -> load_file = file_duplicate(parent_aux ->load_file);
                 if(child_aux -> load_file  == NULL) {
                     free(child_aux);
                     return false;
@@ -454,13 +446,8 @@ supplemental_page_table_kill (struct supplemental_page_table *spt) {
 	/* TODO: Destroy all the supplemental_page_table hold by thread and
 	 * TODO: writeback all the modified contents to the storage. */
 	hash_clear(&spt->vm, spt_destroy_func);
-    // frame_table_kill(&frame_table);
 }
 
-// void
-// frame_table_kill (struct hash *frame_table) {
-// 	hash_clear(frame_table, frame_destroy_func);
-// }
 
 unsigned
 spt_hash_func (const struct hash_elem *p_, void *aux) {
@@ -477,35 +464,7 @@ spt_less_func (const struct hash_elem *a_,
   return a->va < b->va;
 }
 
-// void
-// frame_table_init (struct hash *frame_table) {
-//     lock_init(&frame_table_lock);
-//     hash_init(frame_table, frame_hash_func, frame_less_func, NULL);
-// }
-
-// unsigned
-// frame_hash_func (const struct hash_elem *p_, void *aux) {
-//   const struct frame *p = hash_entry (p_, struct frame, frame_elem);
-//   return hash_bytes (&p->kva, sizeof p->kva);
-// }
-
-// bool
-// frame_less_func (const struct hash_elem *a_,
-//            const struct hash_elem *b_, void *aux) {
-//   const struct frame *a = hash_entry (a_, struct frame, frame_elem);
-//   const struct frame *b = hash_entry (b_, struct frame, frame_elem);
-
-//   return a->kva < b->kva;
-// }
-
 void
 spt_destroy_func (struct hash_elem *e, void *aux) {
     destroy(hash_entry(e, struct page, spt_elem));
 }
-
-// void
-// frame_destroy_func (struct hash_elem *e, void *aux) {
-//     // destroy(hash_entry(e, struct frame, frame_elem));
-//     struct frame *del_frame = hash_entry(e, struct frame, frame_elem);
-//     hash_delete(&frame_table, &del_frame ->frame_elem);
-// }

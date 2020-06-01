@@ -6,6 +6,7 @@
 #include "threads/vaddr.h"
 #include "filesys/file.h"
 #include "userprog/syscall.h"
+#include "userprog/process.h"
 
 static bool file_map_swap_in (struct page *page, void *kva);
 static bool file_map_swap_out (struct page *page);
@@ -99,13 +100,14 @@ do_mmap (void *addr, size_t length, int writable, struct file *file, int fd, off
         lock_release(&filesys_lock);
         return NULL;
     }
-    int mmap_fd = process_add_file(mmap_opened);
-    lock_release(&filesys_lock);
+    // int mmap_fd = process_add_file(mmap_opened);
+    // lock_release(&filesys_lock);
 
     off_t file_len = file_length(mmap_opened);
-    // printf("file length : %x\n", file_len);
-    size_t read_byte;
-    size_t zero_byte;
+    lock_release(&filesys_lock);
+    // printf("file length : %x length : %x, off: %x\n", file_len, length, offset);
+    size_t read_byte = 0;
+    size_t zero_byte = 0;
 
     struct mmap_file *m = malloc(sizeof *m);
     if(m==NULL){
@@ -114,42 +116,43 @@ do_mmap (void *addr, size_t length, int writable, struct file *file, int fd, off
     list_init(&m->mapped_page_list);
     m->file = mmap_opened;
     m->addr = addr;
-
-    for(size_t i=0;i<file_length(mmap_opened);i+=PGSIZE) {
-
-        if(offset + length > PGSIZE) {
-            if(file_length(mmap_opened) < length) {
-                read_byte = file_length(mmap_opened);
-                zero_byte = PGSIZE -read_byte;
-            } else {
-                // printf("smaller than pgsize\n");
-                read_byte = PGSIZE - offset;
-                zero_byte = 0;
-            }  
-        }
-        else {
-            if(file_length(mmap_opened) < length) {
-                read_byte = file_length(mmap_opened);
-                zero_byte = PGSIZE -read_byte;
-            } else {
-                // printf("smaller than pgsize\n");
-                read_byte = length;
-                zero_byte = PGSIZE -read_byte;
-            }
-            
-        }
+    m->mm_writable = writable;
+    // printf("mmap : writable :%d\n", writable);
+    for(size_t i=0;i<file_len;i+=PGSIZE) {
+        // printf("i : %x\n", i);
         struct lazy_file *mmap_lazy = malloc(sizeof *mmap_lazy);
         mmap_lazy -> load_file = mmap_opened;      
         if(i==0) {
             mmap_lazy -> load_ofs = offset;
         } else {
-            mmap_lazy -> load_ofs = 0;
+            mmap_lazy -> load_ofs = i;
+            offset = 0;
         }
+
+        if(PGSIZE <= length) {
+            if(file_len < PGSIZE) {
+                read_byte = file_len;
+                zero_byte = PGSIZE - read_byte;
+            } else {
+                read_byte = PGSIZE;
+                zero_byte = 0;
+            }
+        } else {
+            if(file_len >= length) {
+                read_byte = length;
+                zero_byte = PGSIZE - read_byte;
+            } else {
+                read_byte = file_len;
+                zero_byte = PGSIZE - read_byte;
+            }
+            
+        }
+
         mmap_lazy -> load_read_byte = read_byte;
         mmap_lazy -> load_zero_byte = zero_byte;
-
+        mmap_lazy -> writable = writable;
         // printf("read byte : %x, zero : %x ofs: %x\n", read_byte, zero_byte, mmap_lazy -> load_ofs );
-        if(!vm_alloc_page_with_initializer(VM_FILE, i+addr, true, lazy_load_segment, mmap_lazy)){
+        if(!vm_alloc_page_with_initializer(VM_FILE, i+addr, writable, lazy_load_segment, mmap_lazy)){
             free(mmap_lazy);
             // printf("alloc fail\n");
             return NULL;
@@ -164,19 +167,22 @@ do_mmap (void *addr, size_t length, int writable, struct file *file, int fd, off
         else {
             list_push_back(&m->mapped_page_list, &allocated ->page_elem);
         }
+        // length -= read_byte;
     }
     
     list_push_back(&thread_current()->mm_list, &m -> mm_elem);
-
     return addr;
 }
 
 /* Do the munmap */
 void
 do_munmap (void *addr) {
+    // printf("addr : %x\n", addr);
+    // lock_acquire(&filesys_lock);
     struct page *munmap_page = spt_find_page(&thread_current()->spt, addr);
     if(munmap_page == NULL) {
         // printf("munmpa page null\n");
+        // lock_release(&filesys_lock);
         return;
     }
     enum vm_type type = page_get_type(munmap_page);
@@ -194,19 +200,42 @@ do_munmap (void *addr) {
                 break;
             }
         }
+        // lock_acquire(&filesys_lock);
         //write back from page to the file 
-
+        if(pml4_is_dirty(thread_current()->pml4, addr)) {
+            // printf("pml4 is dirty\n");
+            if(tmp->mm_writable) {
+                // printf("writable file\n");
+                file_write_at(tmp->file, munmap_page->va, munmap_page->read_byte, munmap_page -> offset);
+            } else {
+                // lock_release(&filesys_lock);
+                // printf("not writable\n");
+                return NULL;
+            }
+        }
+        // lock_release(&filesys_lock);
         //remove the list
-        if(!tmp) {
+        if(tmp == NULL){
+            // printf("tmp is null\n");
+        }
+        if(tmp!=NULL) {
+            // printf("tmp is not null\n");
             struct list *page_mapped = &tmp -> mapped_page_list;
             for(int i=0;i<list_size(page_mapped);i++) {
+                // printf("unmap page list : %d\n", i);
                 struct page *unmap_pg = list_entry(list_begin(page_mapped), struct page, page_elem);
                 list_pop_front(page_mapped);
-                file_close(unmap_pg -> file_data);
-                free(unmap_pg);
+                // file_close(unmap_pg -> file_data);
+                // free(unmap_pg);
             }
+            list_remove(&tmp->mm_elem);
+            file_close(tmp->file);
+            free(tmp);
+            // lock_release(&filesys_lock);
+            // printf("unmap success\n");
             return;
         }       
     }
+    // lock_release(&filesys_lock);
     return;
 }

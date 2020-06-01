@@ -192,7 +192,7 @@ userMemoryAcess_check(void *addr) {
     // printf("check addr : %x\n", addr);
     if(!is_user_vaddr(addr)) {
         //excess the valid range -> exit
-        printf("kernel addr\n");
+        // printf("kernel addr\n");
         syscall_exit(-1);
         return;
     } 
