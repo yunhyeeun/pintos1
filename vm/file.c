@@ -147,6 +147,11 @@ do_mmap (void *addr, size_t length, int writable, struct file *file, int fd, off
             }
             
         }
+        
+        if(i == ((int) file_len / PGSIZE) * PGSIZE) {
+            read_byte = file_len - mmap_lazy -> load_ofs;
+            zero_byte = PGSIZE - read_byte;
+        }
 
         mmap_lazy -> load_read_byte = read_byte;
         mmap_lazy -> load_zero_byte = zero_byte;

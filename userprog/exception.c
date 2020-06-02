@@ -172,10 +172,6 @@ page_fault (struct intr_frame *f) {
 		return;
     }
 #endif
-    // if(fault_addr == NULL || fault_addr == 0 || !user || is_kernel_vaddr(fault_addr) || not_present) {
-    //     syscall_exit(-1);
-    // }
-
 	/* Count page faults. */
 	page_fault_cnt++;
 

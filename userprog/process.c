@@ -899,6 +899,7 @@ lazy_load_segment (struct page *page, void *aux) {
         return false;
     }
     // lock_release(&filesys_lock);
+    // printf("after read\n");
     memset(kva + load->load_read_byte, 0, load->load_zero_byte);
     free(load);
     // lock_release(&filesys_lock);

@@ -237,7 +237,7 @@ bool
 vm_try_handle_fault (struct intr_frame *f, void *addr,
 		bool user, bool write, bool not_present ) {
 	struct supplemental_page_table *spt = &thread_current ()->spt;
-    // printf("thread curr: %s %x\n", thread_current()->name, addr);
+    // printf(" try fault thread curr: %s %x\n", thread_current()->name, addr);
     struct page *bogus = spt_find_page(spt, addr);
 	// struct page *page = NULL;
 	/* TODO: Validate the fault */
