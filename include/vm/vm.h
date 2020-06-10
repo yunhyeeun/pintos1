@@ -53,7 +53,8 @@ struct page {
     enum vm_type type;
 
     struct list_elem page_elem;
-    int dirty;
+    struct list_elem lru_elem;
+    size_t swap_location;
 	/* Per-type data are binded into the union.
 	 * Each function automatically detects the current union */
 	union {
@@ -104,9 +105,12 @@ struct lazy_file {
     size_t load_read_byte;
     size_t load_zero_byte;
     bool writable;
+    struct mmap_file *mmapStruct;
+    bool mmapFlag;
 };
 
 #include "threads/thread.h"
+struct list lru_list;
 void supplemental_page_table_init (struct supplemental_page_table *spt);
 bool supplemental_page_table_copy (struct supplemental_page_table *dst,
 		struct supplemental_page_table *src);
@@ -130,10 +134,4 @@ bool vm_alloc_page_with_initializer (enum vm_type type, void *upage,
 void vm_dealloc_page (struct page *page);
 bool vm_claim_page (void *va);
 enum vm_type page_get_type (struct page *page);
-
-bool frame_less_func (const struct hash_elem *a_, const struct hash_elem *b_, void *aux);
-unsigned frame_hash_func (const struct hash_elem *p_, void *aux);
-void frame_table_init (struct hash *frame_table);
-void frame_table_kill (struct hash *frame_table);
-void frame_destroy_func (struct hash_elem *e, void *aux);
 #endif  /* VM_VM_H */

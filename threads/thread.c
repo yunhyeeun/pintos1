@@ -754,6 +754,7 @@ init_thread (struct thread *t, const char *name, int priority) {
 
     #ifdef VM
         list_init(&t->mm_list);
+        // list_init(&t->lru_list);
     #endif
     list_push_back(&all_list, &t->all_elem);
 }

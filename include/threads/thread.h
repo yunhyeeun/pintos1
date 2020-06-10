@@ -142,6 +142,7 @@ struct thread {
     struct hash frame_table;
     void *curr_rsp;
     struct list mm_list;
+    // struct list lru_list;
 
 #endif
 

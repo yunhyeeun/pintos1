@@ -35,7 +35,7 @@ struct file_descriptor* find_fd(struct list *fd_list, int fd);
 bool fd_less (const struct list_elem *a_, const struct list_elem *b_,
             void *aux UNUSED);   
 
-// struct lock rox_lock;
+struct lock rox_lock;
 /* General process initializer for initd and other process. */
 static void
 process_init (void) {
@@ -50,7 +50,7 @@ process_init (void) {
  * Notice that THIS SHOULD BE CALLED ONCE. */
 tid_t
 process_create_initd (const char *file_name) {
-    // lock_init(&rox_lock);
+    lock_init(&rox_lock);
     char *fn_copy;
 	tid_t tid;
 
@@ -167,6 +167,7 @@ __do_fork (void *aux) {
 
 	process_activate (current);
 #ifdef VM
+    
 	supplemental_page_table_init (&current->spt);
     // frame_table_init(&current -> frame_table);
 	if (!supplemental_page_table_copy (&current->spt, &parent->spt))
@@ -262,11 +263,15 @@ process_exec (void *f_name) {
 
 	/* We first kill the current context */
 	process_cleanup ();
-    // supplemental_page_table_init(&thread_current()->spt);
+    // #ifdef VM
+    //     supplemental_page_table_init(&thread_current()->spt);
+    // #endif
 	/* And then load the binary */
-	lock_acquire(&filesys_lock);
+	// lock_acquire(&filesys_lock);
+	// lock_acquire(&rox_lock);
 	success = load (file_name, &_if);
-    lock_release(&filesys_lock);
+    // lock_release(&rox_lock);
+    // lock_release(&filesys_lock);
 	/* If load failed, quit. */
 	free(file_name);
 
@@ -389,7 +394,6 @@ process_cleanup (void) {
 
 #ifdef VM
 	supplemental_page_table_kill (&curr->spt);
-    // frame_table_kill(&curr->frame_table);
 #endif
 
 	uint64_t *pml4;
@@ -510,22 +514,18 @@ load (const char *file_name, struct intr_frame *if_) {
 		cnt++;
 	}
 
-    // lock_acquire(&rox_lock);
-    // lock_acquire(&filesys_lock);
 	/* Open executable file. */
+    // lock_acquire(&filesys_lock);
 	file = filesys_open (cmd_parsing[0]);
-    // printf("load : %s\n", cmd_parsing[0]);
 	if (file == NULL) {
-		printf ("load: %s: open failed\n", file_name);
         // lock_release(&filesys_lock);
-        // lock_release(&rox_lock);
+		printf ("load: %s: open failed\n", file_name);
 		goto done;
 	}
 
     t->running_file = file;
     file_deny_write(file);
     // lock_release(&filesys_lock);
-    // lock_release(&rox_lock);
 
 	/* Read and verify executable header. */
 	if (file_read (file, &ehdr, sizeof ehdr) != sizeof ehdr
@@ -597,7 +597,6 @@ load (const char *file_name, struct intr_frame *if_) {
         // printf("setup stack fail\n");
 		goto done;
     }
-    // printf("setup stack succ\n");
 	/* Start address. */
 	if_->rip = ehdr.e_entry;
 	/* TODO: Your code goes here.
@@ -608,11 +607,8 @@ load (const char *file_name, struct intr_frame *if_) {
 	for (int i = cnt-1; i >= 0; i--) {
 		arglen = strlen(cmd_parsing[i]) + 1;
 		//address of argv[1] which will be stored in user stack
-        // printf("b : %x\n", if_->rsp);
 		if_->rsp -= arglen;
-        // printf("a : %x\n", if_->rsp);
 		memcpy (if_->rsp, cmd_parsing[i], arglen);
-        // printf("after memcpy\n");
 		argvaddr[i] = (uint64_t) if_->rsp;
 	}
 	// word-align
@@ -631,13 +627,10 @@ load (const char *file_name, struct intr_frame *if_) {
 
 	if_->rsp -= 8;
     palloc_free_page(argvaddr);
-	// file_deny_write(file);
-	// thread_current()->running_file = file;
 	success = true;
-    // printf("load success\n");
 done:
 	/* We arrive here whether the load is successful or not. */
-	// file_close (file);
+
     palloc_free_page (cmd_parsing);
     t->is_load = success;
 	return success;
@@ -881,29 +874,22 @@ lazy_load_segment (struct page *page, void *aux) {
         // printf("thread :%s, aux read byte : %x va :%x\n", thread_current() -> name, page -> read_byte, page->va);
     }
 
-    // struct file *reopened = file_reopen(load->load_file);
-	// file_seek(reopened, load -> load_ofs);
-	// syscall_seek(load -> load_file, load->load_ofs);
-	
+    if(load->mmapFlag) {
+        list_push_back(&load->mmapStruct->mapped_page_list, &page -> page_elem);   
+    }
 	// off_t reads = file_read(load -> load_file, kva, load -> load_read_byte);
-	off_t reads =file_read_at(load -> load_file, kva, load->load_read_byte, load->load_ofs);
+	// off_t reads =file_read_at(load -> load_file, kva, load->load_read_byte, load->load_ofs);
     // printf("after file seek\n");
-    if(reads!= load->load_read_byte) {
+    // if(reads!= load->load_read_byte) {
 	    // printf("read at fail read : %x, actual : %x off : %x\n", load -> load_read_byte, reads, load-> load_ofs);
-    // lock_acquire(&filesys_lock);
-    // lock_acquire(&rox_lock);
-    // if(file_read_at(load -> load_file, kva, load->load_read_byte, load->load_ofs) != load->load_read_byte) {
+  
+    if(file_read_at(load -> load_file, kva, load->load_read_byte, load->load_ofs) != load->load_read_byte) {
         free(load);
-        // lock_release(&filesys_lock);
-        // lock_release(&rox_lock);
         return false;
     }
-    // lock_release(&filesys_lock);
-    // printf("after read\n");
+
     memset(kva + load->load_read_byte, 0, load->load_zero_byte);
     free(load);
-    // lock_release(&filesys_lock);
-	// printf ("finish lazy_load_segment\n");
 	return true;
 }
 
@@ -943,8 +929,11 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
         lazy_file -> load_read_byte = page_read_bytes;
         lazy_file -> load_zero_byte = page_zero_bytes;
         lazy_file -> writable = writable;
+        lazy_file -> mmapFlag = false;
+        lazy_file -> mmapStruct = NULL;
 		if (!vm_alloc_page_with_initializer (VM_ANON, upage, writable, lazy_load_segment, lazy_file)) {
-            free(lazy_file);                
+            free(lazy_file); 
+            // lock_release(&filesys_lock);               
 			return false;
         }
 
@@ -967,6 +956,7 @@ setup_stack (struct intr_frame *if_) {
 	 * TODO: You should mark the page is stack. */
 	/* TODO: Your code goes here */
     if(!vm_alloc_page_with_initializer(VM_ANON, stack_bottom, true, NULL, NULL)) {
+        // lock_release(&filesys_lock);
         return false;
     }
 
