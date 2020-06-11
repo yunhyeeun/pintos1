@@ -111,6 +111,7 @@ struct lazy_file {
 
 #include "threads/thread.h"
 struct list lru_list;
+struct lock lru_lock;
 void supplemental_page_table_init (struct supplemental_page_table *spt);
 bool supplemental_page_table_copy (struct supplemental_page_table *dst,
 		struct supplemental_page_table *src);

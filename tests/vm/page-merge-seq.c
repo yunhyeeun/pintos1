@@ -53,7 +53,7 @@ sort_chunks (void)
       CHECK ((handle = open ("buffer")) > 1, "open \"buffer\"");
       write (handle, buf1 + CHUNK_SIZE * i, CHUNK_SIZE);
       close (handle);
-
+    
       /* Sort with subprocess. */
       child = fork("child-sort");
 			/* if (child == 0) { */

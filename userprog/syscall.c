@@ -211,10 +211,14 @@ bool
 syscall_create(const char *file, unsigned initial_size) {
     userMemoryAcess_check(file);
     if(file == NULL) {
+        // printf("file null\n");
         syscall_exit(-1);
         return NULL;
     } else {
-        return filesys_create(file, initial_size);
+        bool create_check = filesys_create(file, initial_size);
+        // return filesys_create(file, initial_size);
+        // printf("create check : %d\n", create_check);
+        return create_check;
     }
 }
 

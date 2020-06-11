@@ -17,6 +17,7 @@
 
 struct lock spt_lock;
 struct list lru_list;
+// struct hash lru_table;
 struct lock lru_lock;
 struct list_elem *lru_next = NULL;
 
@@ -34,7 +35,8 @@ vm_init (void) {
 	vm_anon_init ();
 	vm_file_init ();
     list_init(&lru_list);
-    // lock_init(&lru_lock);
+    // hash_init(&lru_table, lru_hash_func, lru_less_func, NULL);
+    lock_init(&lru_lock);
 
 #ifdef EFILESYS  /* For project 4 */
 	pagecache_init (); 
@@ -65,8 +67,7 @@ static struct frame *vm_evict_frame (void);
 
 /* Create the pending page object with initializer. If you want to create a
  * page, do not create it directly and make it through this function or
- * `vm_alloc_page`.
- * DO NOT MODIFY THIS FUNCTION. */
+ * `vm_alloc_page`. */
 bool
 vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 		vm_initializer *init, void *aux) {
@@ -114,8 +115,8 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
             // printf("insert succ\n");
 			return true;
 		} else {
-            vm_dealloc_page(newPage);
-            // free(newPage);
+            // vm_dealloc_page(newPage);
+            free(newPage);
 			goto err;
 		}
 	}
@@ -177,35 +178,6 @@ vm_get_victim (void) {
      }
     struct list_elem *e = lru_next;
     int lru_flg = 0;
-    // struct list_elem *tmp;
-    // for(int i=0;i<list_size(&lru_list);i++) {
-    //     struct page *evict_check = list_entry(e, struct page, lru_elem);
-    //     if(pml4_is_accessed(thread_current()->pml4, evict_check -> va)) {
-    //         pml4_set_accessed(thread_current() -> pml4, evict_check ->va, false);
-    //     } else {
-    //         if(!lru_flg) {
-    //             victim = evict_check -> frame;
-    //             list_remove(&evict_check -> lru_elem);
-    //             lru_flg = 1;
-    //             if(e==list_end(&lru_list)) {
-    //                 lru_next = list_begin(&lru_list);
-    //             } else {
-    //                 lru_next = list_next(e);
-    //             }
-    //             // lock_release(&lru_lock);
-    //             // return victim;
-    //             // break;
-    //         } 
-    //     }
-    //     if(e==list_end(&lru_list)) {
-    //         e = list_begin(&lru_list);
-    //     } else {
-    //         e = list_next(e);
-    //     }
-
-    // }
-
-    // lru_next = tmp;
     while(victim == NULL) {
         struct page *evict_check = list_entry(e, struct page, lru_elem);
         if(pml4_is_accessed(thread_current()->pml4, evict_check -> va)) {
@@ -228,7 +200,7 @@ vm_get_victim (void) {
         }
         
     }
-    // printf("[get victim function] victim ->uva\n");
+
 	return victim;
 }
 
@@ -238,14 +210,6 @@ static struct frame *
 vm_evict_frame (void) {
 	struct frame *victim = vm_get_victim ();
 	/* TODO: swap out the victim and return the evicted frame. */
-    // int cnt =0;dnfldnf
-    // while(victim == NULL){ 
-    //     // cnt++;
-    //     // printf("victim null\n");
-    //     victim = vm_get_victim();
-    // }
-    // printf("evict cnt : %d\n", cnt);
-    // printf("before swap out\n");
     bool check = swap_out(victim -> page);
 	return victim;
 }
@@ -262,6 +226,7 @@ vm_get_frame (void) {
 	struct page *page = palloc_get_page(PAL_USER);
 	if (page == NULL) {
         frame = vm_evict_frame();
+        
 	} else {    
         frame = malloc(sizeof(struct frame));
         if (frame == NULL) {
@@ -431,12 +396,13 @@ supplemental_page_table_copy (struct supplemental_page_table *dst, struct supple
                     return false;
                 }
 
-                // child_aux -> load_file = parent_aux ->load_file;
-                child_aux -> load_file = file_duplicate(parent_aux -> load_file);
-                if(child_aux -> load_file  == NULL) {
-                    // free(child_aux);
-                    return false;
-                }
+                child_aux -> load_file = parent_aux ->load_file;
+                // child_aux -> load_file = file_duplicate(parent_aux -> load_file);
+                // if(child_aux -> load_file  == NULL) {
+                //     // free(child_aux);
+                //     // printf("aux file null\n");
+                //     return false;
+                // }
                 child_aux -> load_ofs = parent_aux -> load_ofs;
                 child_aux->load_read_byte = parent_aux->load_read_byte;
                 child_aux -> load_zero_byte = parent_aux -> load_zero_byte;
@@ -473,39 +439,7 @@ supplemental_page_table_copy (struct supplemental_page_table *dst, struct supple
                     return false;
                 }
                 vm_do_claim_page (page_child);
-                // struct frame *frame_child = vm_get_frame ();
-                // // printf("parent kva : %x va : %x\n", page_it->frame->kva, page_it->frame->uva);
-                // frame_child -> page = page_child;
-                // frame_child -> uva = page_child -> va;
-                // page_child -> frame = frame_child;
-
-                // if(pml4_get_page(thread_current()->pml4, frame_child->uva) == NULL) {
-                //     // printf("get pagr null\n");
-                //     // if (!pml4_set_page(thread_current()->pml4, frame_child->uva, frame_child->kva, frame_child->page->writable)) {
-                //     if (!pml4_set_page(thread_current()->pml4, frame_child->uva, frame_child->kva, page_it->writable)) {
-                //         // if(!pml4_set_page(thread_current()->parent->pml4, page_it->va, page_it->frame->kva, false)) {
-                //             return false;
-                //         // }
-                //         // printf("set page fail\n");
-                //         // free(child_aux);
-                //         // free(frame_child);
-                //         // return false;
-                //     }
-                // } else {
-                //     // free(child_aux);
-                //     // free(frame_child);
-                //     return false;
-                // }
-                
-                // bool swap_check = swap_in(page_child, frame_child->kva); 
-                // if(!swap_check) {
-                //     // free(child_aux);
-                //     // free(frame_child);
-                //     return false;
-                // }
-                // memcpy(frame_child->kva, page_it->frame->kva, PGSIZE);
                 memcpy(page_child->frame->kva, page_it->frame->kva, PGSIZE);
-            // }
         }
     }
     return true;
@@ -530,19 +464,36 @@ spt_less_func (const struct hash_elem *a_,
   return a->va < b->va;
 }
 
+// unsigned
+// lru_hash_func (const struct hash_elem *p_, void *aux) {
+//   const struct page *p = hash_entry (p_, struct page, lru_elem);
+//   return hash_bytes (&p->va, sizeof p->va);
+// }
+
+// bool
+// lru_less_func (const struct hash_elem *a_,
+//            const struct hash_elem *b_, void *aux) {
+//   const struct page *a = hash_entry (a_, struct page, lru_elem);
+//   const struct page *b = hash_entry (b_, struct page, lru_elem);
+
+//   return a->va < b->va;
+// }
+
 void
 spt_destroy_func (struct hash_elem *e, void *aux) {
     struct page *page = hash_entry(e, struct page, spt_elem);
     if(page != NULL) {
+        // pml4_clear_page(thread_current()->pml4, page->va);
         vm_dealloc_page(page);
-    }
+    } 
 }
 
 void
 supplemental_page_table_kill (struct supplemental_page_table *spt) {
 	/* TODO: Destroy all the supplemental_page_table hold by thread and
 	 * TODO: writeback all the modified contents to the storage. */
-	hash_clear(&spt->vm, spt_destroy_func);
+	// hash_destroy(&spt->vm, spt_destroy_func);
+	hash_destroy(&spt->vm, spt_destroy_func);
     // free(spt);
 	// hash_destroy(&spt->vm, NULL);
 }

@@ -263,15 +263,13 @@ process_exec (void *f_name) {
 
 	/* We first kill the current context */
 	process_cleanup ();
-    // #ifdef VM
-    //     supplemental_page_table_init(&thread_current()->spt);
-    // #endif
+    #ifdef VM
+        supplemental_page_table_init(&thread_current()->spt);
+    #endif
 	/* And then load the binary */
-	// lock_acquire(&filesys_lock);
 	// lock_acquire(&rox_lock);
 	success = load (file_name, &_if);
     // lock_release(&rox_lock);
-    // lock_release(&filesys_lock);
 	/* If load failed, quit. */
 	free(file_name);
 
@@ -515,17 +513,18 @@ load (const char *file_name, struct intr_frame *if_) {
 	}
 
 	/* Open executable file. */
-    // lock_acquire(&filesys_lock);
+    // lock_acquire(&rox_lock);
+    // printf("file open : %s\n", cmd_parsing[0]);
 	file = filesys_open (cmd_parsing[0]);
 	if (file == NULL) {
-        // lock_release(&filesys_lock);
+        // lock_release(&rox_lock);
 		printf ("load: %s: open failed\n", file_name);
 		goto done;
 	}
 
     t->running_file = file;
     file_deny_write(file);
-    // lock_release(&filesys_lock);
+    // lock_release(&rox_lock);
 
 	/* Read and verify executable header. */
 	if (file_read (file, &ehdr, sizeof ehdr) != sizeof ehdr
@@ -614,18 +613,25 @@ load (const char *file_name, struct intr_frame *if_) {
 	// word-align
 	while (if_->rsp % 8 != 0) {
 		if_->rsp --;
+        memset((char *)if_->rsp, 0, 1);
 	}
 	// null-pointer
 	if_->rsp -= 8;
+    memset((char *)if_->rsp, 0, sizeof(char *));
+
 	// push address of argument in user stack
 	for (int i = cnt-1; i >= 0; i--) {
 		if_->rsp -= 8;
-		*((char **) if_->rsp) = argvaddr[i];
+        memcpy(if_->rsp, &argvaddr[i], 8);
 	}
+
     if_-> R.rsi = if_ ->rsp;
 	if_->R.rdi = cnt;
 
+    //return address
 	if_->rsp -= 8;
+    memset((char *)if_->rsp, 0, 8);
+
     palloc_free_page(argvaddr);
 	success = true;
 done:
@@ -890,6 +896,7 @@ lazy_load_segment (struct page *page, void *aux) {
 
     memset(kva + load->load_read_byte, 0, load->load_zero_byte);
     free(load);
+    // printf("finish lazy load\n");
 	return true;
 }
 
@@ -955,8 +962,10 @@ setup_stack (struct intr_frame *if_) {
 	 * TODO: If success, set the rsp accordingly.
 	 * TODO: You should mark the page is stack. */
 	/* TODO: Your code goes here */
+    // printf("setup stack\n");
     if(!vm_alloc_page_with_initializer(VM_ANON, stack_bottom, true, NULL, NULL)) {
         // lock_release(&filesys_lock);
+        // printf("alloc fail\n");
         return false;
     }
 
@@ -966,6 +975,7 @@ setup_stack (struct intr_frame *if_) {
     if(success) {
         if_ -> rsp = USER_STACK;
     }
+    // printf("set up stack success\n");
 	return success;
 }
 #endif /* VM */

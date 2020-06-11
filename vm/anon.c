@@ -4,13 +4,16 @@
 #include "devices/disk.h"
 #include "bitmap.h"
 #include "threads/vaddr.h"
+#include "threads/thread.h"
 #define NUM_SECTOR_SWAP_SLOT PGSIZE/DISK_SECTOR_SIZE
 
 struct lock swap_lock;
-struct bitmap* swap_bitmap;
+// struct bitmap* swap_bitmap;
 
 /* DO NOT MODIFY BELOW LINE */
 static struct disk *swap_disk;
+// int swap_bitmap[];
+int *swap_bitmap;
 static bool anon_swap_in (struct page *page, void *kva);
 static bool anon_swap_out (struct page *page);
 static void anon_destroy (struct page *page);
@@ -31,7 +34,9 @@ vm_anon_init (void) {
     lock_init(&swap_lock);
     swap_disk = disk_get(1,1);
     if(swap_disk != NULL){
-        swap_bitmap = bitmap_create(disk_size(swap_disk)); //disk size returns the number of sector
+        swap_bitmap = malloc(sizeof(int)*disk_size(swap_disk));
+        // memset(0, )
+        // swap_bitmap = bitmap_create(disk_size(swap_disk)); //disk size returns the number of sector
     }
     
 }
@@ -56,14 +61,11 @@ anon_swap_in (struct page *page, void *kva) {
 	struct anon_page *anon_page = &page->anon;
     lock_acquire(&swap_lock);
     //get disk contents of page and read to frame
-    // swap_disk = disk_get(1,1);
-    // if(page->swap_location > disk_size(swap_disk)) {
-    //     lock_release(&swap_lock);
-    //     return false;
-    // }
     for(int i=0;i<NUM_SECTOR_SWAP_SLOT;i++) {
         disk_read(swap_disk, page->swap_location + i, kva + i * DISK_SECTOR_SIZE);
-        bitmap_set(swap_bitmap, page->swap_location + i, false);
+        // bitmap_set(swap_bitmap, page->swap_location + i, false);
+        // swap_bitmap[page->swap_location + i] = 0;
+        *(swap_bitmap + page->swap_location + i) = 0;
     }
     page->swap_location = -1;
     
@@ -77,27 +79,44 @@ anon_swap_out (struct page *page) {
     // printf("swap out\n");
     lock_acquire(&swap_lock);
 	struct anon_page *anon_page = &page->anon;
-    // swap_disk = disk_get(1, 1);
-    // printf("page swap loc : %d disk size : %d\n", page->swap_location, (size_t)disk_size(swap_disk));
-    // if(page->swap_location > (size_t)disk_size(swap_disk)) {
-    //     // printf("swap location is bigger than disk size\n");
-    //     lock_release(&swap_lock);
-    //     return false;
-    // }
 
-    size_t first_fit = bitmap_scan_and_flip(swap_bitmap, 0, NUM_SECTOR_SWAP_SLOT, false);
-    if (first_fit == BITMAP_ERROR) {
-        // printf("first bit is error\n");
+    // size_t first_fit = bitmap_scan_and_flip(swap_bitmap, 0, NUM_SECTOR_SWAP_SLOT, false);
+    int first_fit = -1;
+    for (int i=0;i<disk_size(swap_disk)-NUM_SECTOR_SWAP_SLOT;i++) {
+        int cnt = 0;
+        for (int j=i;j<i+8;j++) {
+            // if(swap_bitmap[j] !=0) {
+            if(*(swap_bitmap + j) != 0) { 
+                break;
+            } else {
+                cnt++;
+            }
+            
+        }
+        if(cnt == 8) {
+            first_fit = i;
+            for(int j=i;j<i+8;j++) {
+                // swap_bitmap[j] = 1;
+                *(swap_bitmap + j) = 1;
+            }
+            break;
+        }
+    }
+
+    // if (first_fit == BITMAP_ERROR) {
+    if (first_fit == -1) {
         lock_release(&swap_lock);
         PANIC("NO MORE FREE SLOT");
         return false;
     }
-
     for(int i=0;i<NUM_SECTOR_SWAP_SLOT;i++) {
+        // printf("first bit + i : %x, page kva+i : %x\n", first_fit + i, page->frame->kva+i* DISK_SECTOR_SIZE);
         disk_write(swap_disk, first_fit + i, page->frame->kva + i * DISK_SECTOR_SIZE);
     }
     page->swap_location = first_fit;
+    // lock_acquire(&lru_lock);
     list_remove(&page->lru_elem);
+    // lock_release(&lru_lock);
     //if successfully write to disk, delete the page from PTE
     pml4_clear_page(thread_current()->pml4, page->va);
     lock_release(&swap_lock);

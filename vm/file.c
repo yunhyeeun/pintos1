@@ -45,7 +45,7 @@ file_map_initializer (struct page *page, enum vm_type type, void *aux, vm_initia
 static bool
 file_map_swap_in (struct page *page, void *kva) {
 	// struct file_page *file_page = &page->file;
-
+    // printf("file swap in\n");
     lock_acquire(&filesys_lock);
     off_t actual = file_read_at(page->file_data, kva, page->read_byte, page->offset);
     if(actual != page->read_byte) {
@@ -53,22 +53,26 @@ file_map_swap_in (struct page *page, void *kva) {
         return false;
     }
     lock_release(&filesys_lock);
-    return true;
+    return pml4_set_page(thread_current()->pml4, page->va, kva, page->writable);
 }
 
 /* Swap out the page by writeback contents to the file. */
 static bool
 file_map_swap_out (struct page *page) {
 	// struct file_page *file_page = &page->file;
+    // printf("file swap out\n");
     lock_acquire(&filesys_lock);
     if(pml4_is_dirty(&thread_current()->pml4, page->va)) {
         off_t actual = file_write_at(page->file_data, page->frame->kva, page->read_byte, page->offset);
         if(actual != page->read_byte) {
+            // printf("actuual read is different\n");
             lock_release(&filesys_lock);
             return false;
         }
     }
-    pml4_set_dirty(&thread_current()->pml4, page->va, false);
+    list_remove(&page->lru_elem);
+    pml4_set_dirty(thread_current()->pml4, page->va, false);
+    pml4_clear_page(thread_current()->pml4, page->va);
     lock_release(&filesys_lock);
     return true;
 }
@@ -173,23 +177,10 @@ do_mmap (void *addr, size_t length, int writable, struct file *file, int fd, off
         mmap_lazy -> writable = writable;
         mmap_lazy -> mmapFlag = true;
         mmap_lazy -> mmapStruct = m;
-        // printf("read byte : %x, zero : %x ofs: %x\n", read_byte, zero_byte, mmap_lazy -> load_ofs );
         if(!vm_alloc_page_with_initializer(VM_FILE, i+addr, writable, lazy_load_segment, mmap_lazy)){
             free(mmap_lazy);
-            // printf("alloc fail\n");
             return NULL;
         }
-        
-        // struct page *allocated = spt_find_page(&thread_current() -> spt, addr+i);
-        // if(allocated == NULL) {
-        //     // printf("not existed in spt\n");
-        //     free(mmap_lazy);
-        //     return NULL;
-        // }
-        // else {
-        //     list_push_back(&m->mapped_page_list, &allocated ->page_elem);
-        // }
-        // length -= read_byte;
     }
     
     list_push_back(&thread_current()->mm_list, &m -> mm_elem);
@@ -226,13 +217,7 @@ do_munmap (void *addr) {
         if(pml4_is_dirty(thread_current()->pml4, addr)) {
             // printf("pml4 is dirty\n");
             if(tmp->mm_writable) {
-            // if(arg -> mmapStruct->mm_writable) {
-                // printf("mm writable true\n");
                 file_write_at(tmp->file, munmap_page->va, munmap_page->read_byte, munmap_page -> offset);
-                // file_write_at(arg -> mmapStruct->file, munmap_page->va, munmap_page->read_byte, munmap_page -> offset);
-                // printf("after write at\n");
-                // arg -> mmapFlag = false;
-                // printf("after change the mmap flag\n");
             } else {
                 lock_release(&filesys_lock);
                 return NULL;
