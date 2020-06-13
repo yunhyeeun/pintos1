@@ -132,6 +132,7 @@ struct thread {
     struct semaphore load_sema;
     struct semaphore exit_sema;
     struct semaphore child_create;
+    struct semaphore fork_wait_sema;
     struct file *running_file;
     int fork_flag;
 #endif

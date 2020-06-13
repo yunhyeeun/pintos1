@@ -80,7 +80,6 @@ static void
 initd (void *f_name) {
 #ifdef VM
 	supplemental_page_table_init (&thread_current ()->spt);
-    // frame_table_init(&thread_current() -> frame_table);
 #endif
 	process_init ();
 	if (process_exec (f_name) < 0)
@@ -98,6 +97,7 @@ process_fork (const char *name, struct intr_frame *if_ ) {
 	if(pid == TID_ERROR) {
 		thread_current() -> fork_flag = 0;
 		sema_up(&thread_current()->child_create);
+        // sema_up(&thread_current()->fork_wait_sema);
 	}
 	 sema_down(&thread_current() -> child_create);
 
@@ -169,32 +169,8 @@ __do_fork (void *aux) {
 #ifdef VM
     
 	supplemental_page_table_init (&current->spt);
-    // frame_table_init(&current -> frame_table);
 	if (!supplemental_page_table_copy (&current->spt, &parent->spt))
 		goto error;
-
-    // struct list_elem *m;
-    // struct list *parent_mm_list = &parent -> mm_list;
-    // struct list *child_mm_list = &current -> mm_list;
-
-    // for(m=list_begin(parent_mm_list);m!=list_end(parent_mm_list);m=list_next(m)) {
-    //     struct mmap_file *parent_mm = list_entry(m, struct mmap_file, mm_elem);
-    //     // struct file *f = parent_mm -> file;
-    //     struct file *child_file = parent_mm -> file;
-	// 	// if (child_file == NULL) {
-	// 	// 	goto error;
-	// 	// }
-    //     struct mmap_file *child_mm = calloc (1, sizeof(struct mmap_file));
-    //     if (child_mm == NULL) {
-	// 		goto error;
-	// 	}
-	// 	child_mm -> file = child_file;
-    //     child_mm -> addr = parent_mm -> addr;
-    //     child_mm -> mm_writable = parent_mm -> mm_writable;
-    //     child_mm -> mapped_page_list = parent_mm -> mapped_page_list;
-
-    //     list_push_back(child_mm_list, &child_mm->mm_elem);
-    // }
 
 #else
 	if (!pml4_for_each (parent->pml4, duplicate_pte, parent)) {
@@ -231,8 +207,11 @@ __do_fork (void *aux) {
     }
 
 	process_init ();
+    
     sema_up(&thread_current()->parent->child_create);
-
+    // if(thread_current()-> parent->tid >1) {
+    sema_down(&thread_current()->parent->fork_wait_sema);
+    // }
 	/* Finally, switch to the newly created process. */
 	if (succ) {
 		if_.R.rax = 0;
@@ -243,6 +222,7 @@ error:
     thread_current()->child_exit_status = -1;
 	thread_exit ();
 	sema_up(&thread_current()->parent->child_create);
+    // sema_up(&thread_current()->parent->fork_wait_sema);
 }
 
 /* Switch the current execution context to the f_name.
@@ -300,10 +280,12 @@ process_wait (tid_t child_tid) {
 	 * XXX:       to add infinite loop here before
 	 * XXX:       implementing the process_wait. */
 	// printf("wait child pid is : %d\n", child_tid);
- 
-    // printf("wait : !!!! curr name : %s\n", thread_current()->name);
+    // printf("wait : !!!! curr name : %s, %d\n", thread_current()->name, child_tid);
     // printf("wait : %s %d\n", thread_current()->name, child_tid);
     if(child_tid == -1) {
+        if(thread_current()->tid >1) {
+            sema_up(&thread_current()->fork_wait_sema);
+        }
         return -1;
     }
 
@@ -322,21 +304,32 @@ process_wait (tid_t child_tid) {
         }
     }
     if(cnt == 0) { // there is no child in child list of parent
+        if(thread_current()->tid >1) {
+            sema_up(&thread_current()->fork_wait_sema);
+        }
 		return -1;
     }
 
     if(child_tmp -> child_exit_status == -1) {
+        if(thread_current()->tid >1) {
+            sema_up(&thread_current()->fork_wait_sema);
+        }
         return -1;
+    }
+    
+    if(thread_current()->tid >1) {
+            sema_up(&thread_current()->fork_wait_sema);
     }
 
 	sema_down(&child_tmp->exit_sema); 
     child_exit_status = child_tmp -> exit_status;
+    
 
     if(child_tmp -> is_exit == true) {
         list_remove(e);
     }
 
-    sema_up(&child_tmp->load_sema);
+    // sema_up(&child_tmp->load_sema);
     return child_exit_status;
 }
 
@@ -367,22 +360,12 @@ process_exit (void) {
 
     if(curr->child_exit_status == -1 && curr -> parent-> fork_flag == 1) {    
         sema_up(&curr->parent->child_create);  
+        // sema_up(&curr->parent->fork_wait_sema);
         list_remove(&curr->child_elem);
     }  
-
-    // //munmap the mm list
-    struct list *mm_list = &thread_current() -> mm_list;
-    int mm_size = list_size(mm_list);
-    if(mm_size) {
-        for(int i=0;i<mm_size;i++) { 
-            struct mmap_file *tmp = list_entry(list_begin(mm_list), struct mmap_file, mm_elem);
-            do_munmap(tmp-> addr);
-        }
-    } 
-
 	process_cleanup ();
 	sema_up(&curr->exit_sema);
-    sema_down(&curr->load_sema);
+    // sema_down(&curr->load_sema);
 }
 
 /* Free the current process's resources. */
@@ -514,11 +497,13 @@ load (const char *file_name, struct intr_frame *if_) {
 
 	/* Open executable file. */
     // lock_acquire(&rox_lock);
+    // lock_acquire(&filesys_lock);
     // printf("file open : %s\n", cmd_parsing[0]);
 	file = filesys_open (cmd_parsing[0]);
 	if (file == NULL) {
         // lock_release(&rox_lock);
 		printf ("load: %s: open failed\n", file_name);
+        // lock_release(&filesys_lock);
 		goto done;
 	}
 
@@ -634,6 +619,7 @@ load (const char *file_name, struct intr_frame *if_) {
 
     palloc_free_page(argvaddr);
 	success = true;
+    // lock_release(&filesys_lock);
 done:
 	/* We arrive here whether the load is successful or not. */
 

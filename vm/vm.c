@@ -79,7 +79,7 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 		/* TODO: Create the page, fetch the initialier according to the VM type,
 		 * TODO: and then create "uninit" page struct by calling uninit_new. You
 		 * TODO: should modify the field after calling the uninit_new. */
-        struct page *newPage = malloc(sizeof(struct page));
+        struct page *newPage = calloc(1, sizeof *newPage);
 		if (newPage == NULL) {
 			goto err; 
 		}
@@ -115,8 +115,8 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
             // printf("insert succ\n");
 			return true;
 		} else {
-            // vm_dealloc_page(newPage);
-            free(newPage);
+            vm_dealloc_page(newPage);
+            // destroy(newPage);
 			goto err;
 		}
 	}
@@ -127,18 +127,21 @@ err:
 /* Find VA from spt and return page. On error, return NULL. */
 struct page *
 spt_find_page (struct supplemental_page_table *spt, void *va) {
-	struct page *page = malloc(sizeof(struct page));
+	struct page *page = calloc(1, sizeof *page);
 	/* TODO: Fill this function. */
     if(page == NULL) {
         return NULL;
     }
     page -> va = pg_round_down(va);
+    lock_acquire(&spt_lock);
     struct hash_elem *e = hash_find(&spt->vm, &page -> spt_elem);
+    free(page);
     if(e == NULL) {
-        free(page);
+        // free(page);
+        lock_release(&spt_lock);
         return NULL;
     } else {
-        free(page);
+        lock_release(&spt_lock);
         return hash_entry(e, struct page, spt_elem);
     }
 	// return page;
@@ -163,6 +166,7 @@ spt_insert_page (struct supplemental_page_table *spt, struct page *page) {
 
 void
 spt_remove_page (struct supplemental_page_table *spt, struct page *page) {
+    // hash_delete(&spt->vm, &page->spt_elem);
 	vm_dealloc_page (page);
 	return true;
 }
@@ -228,8 +232,9 @@ vm_get_frame (void) {
         frame = vm_evict_frame();
         
 	} else {    
-        frame = malloc(sizeof(struct frame));
+        frame = calloc(1, sizeof *frame);
         if (frame == NULL) {
+            free(page);
             return NULL;
         }
         frame->uva = NULL;
@@ -309,7 +314,6 @@ vm_try_handle_fault (struct intr_frame *f, void *addr,
 		// printf("bogus va : %x ofs : %x read_byte : %x\n", bogus->va, bogus->offset, bogus->read_byte);
     } 
     if(!not_present && write) {
-        // printf("presetn and writabel\n");
         syscall_exit(-1);
 
     }
@@ -390,7 +394,7 @@ supplemental_page_table_copy (struct supplemental_page_table *dst, struct supple
                 struct uninit_page *uninit = &page_it->uninit;
                 enum vm_type type_uninit = uninit->type;
                 struct lazy_file *parent_aux = ((struct lazy_file *)(uninit->aux));
-                struct lazy_file *child_aux = malloc(sizeof *parent_aux);
+                struct lazy_file *child_aux = calloc(1, sizeof *parent_aux);
 
                 if(child_aux == NULL){
                     return false;
@@ -482,8 +486,13 @@ spt_less_func (const struct hash_elem *a_,
 void
 spt_destroy_func (struct hash_elem *e, void *aux) {
     struct page *page = hash_entry(e, struct page, spt_elem);
+    // enum vm_type type = VM_TYPE(page->operations->type);
+    // if (type != VM_UNINIT) {
+    //     free(page->frame);
+    // }
     if(page != NULL) {
         // pml4_clear_page(thread_current()->pml4, page->va);
+        // destroy(page);
         vm_dealloc_page(page);
     } 
 }
@@ -493,7 +502,9 @@ supplemental_page_table_kill (struct supplemental_page_table *spt) {
 	/* TODO: Destroy all the supplemental_page_table hold by thread and
 	 * TODO: writeback all the modified contents to the storage. */
 	// hash_destroy(&spt->vm, spt_destroy_func);
+    // lock_acquire(&spt_lock);
 	hash_destroy(&spt->vm, spt_destroy_func);
+    // lock_release(&spt_lock);
     // free(spt);
 	// hash_destroy(&spt->vm, NULL);
 }

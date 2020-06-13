@@ -266,6 +266,8 @@ thread_create (const char *name, int priority,
         sema_init(&t->load_sema, 0);
         sema_init(&t->exit_sema, 0);
         sema_init(&t->child_create, 0);
+        sema_init(&t->fork_wait_sema, 0);
+        
 		t->fork_flag= 0;
 		t->child_exit_status = 0;
         // printf("before child push : %d\n", list_size(&t->parent->child_list));

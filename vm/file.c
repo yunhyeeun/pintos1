@@ -81,6 +81,19 @@ file_map_swap_out (struct page *page) {
 static void
 file_map_destroy (struct page *page) {
 	struct file_page *file_page = &page->file;
+    lock_acquire(&filesys_lock);
+    //write back from page to the file 
+    if(pml4_is_dirty(thread_current()->pml4, page->va)) {
+        // printf("pml4 is dirty\n");
+        if(page -> writable) {
+            file_write_at(page->file_data, page->va, page->read_byte, page -> offset);
+        } else {
+            lock_release(&filesys_lock);
+            return NULL;
+        }
+    }
+    lock_release(&filesys_lock);
+    return;
 }
 
 /* Do the mmap */
@@ -191,10 +204,10 @@ do_mmap (void *addr, size_t length, int writable, struct file *file, int fd, off
 void
 do_munmap (void *addr) {
     // printf("munmap func\n");
-    lock_acquire(&filesys_lock);
+    // lock_acquire(&filesys_lock);
     struct page *munmap_page = spt_find_page(&thread_current()->spt, addr);
     if(munmap_page == NULL) {
-        lock_release(&filesys_lock);
+        // lock_release(&filesys_lock);
         return;
     }
     enum vm_type type = page_get_type(munmap_page);
@@ -211,23 +224,33 @@ do_munmap (void *addr) {
             tmp = list_entry(e, struct mmap_file, mm_elem);
             if(tmp -> addr == addr) {
                 break; 
-            }
+            }  
         }
-        //write back from page to the file 
-        if(pml4_is_dirty(thread_current()->pml4, addr)) {
-            // printf("pml4 is dirty\n");
-            if(tmp->mm_writable) {
-                file_write_at(tmp->file, munmap_page->va, munmap_page->read_byte, munmap_page -> offset);
-            } else {
-                lock_release(&filesys_lock);
-                return NULL;
-            }
-        }
+        // //write back from page to the file 
+        // if(pml4_is_dirty(thread_current()->pml4, addr)) {
+        //     // printf("pml4 is dirty\n");
+        //     if(tmp->mm_writable) {
+        //         file_write_at(tmp->file, munmap_page->va, munmap_page->read_byte, munmap_page -> offset);
+        //     } else {
+        //         lock_release(&filesys_lock);
+        //         return NULL;
+        //     }
+        // }
         //remove the list
         if(tmp!=NULL) {
             struct list *page_mapped = &tmp -> mapped_page_list;
             for(int i=0;i<list_size(page_mapped);i++) {
                 struct page *unmap_pg = list_entry(list_begin(page_mapped), struct page, page_elem);
+                // if(pml4_is_dirty(thread_current()->pml4, unmap_pg->va)) {
+                //     // printf("pml4 is dirty\n");
+                //     if(unmap_pg -> writable) {
+                //         file_write_at(unmap_pg->file_data, unmap_pg->va, unmap_pg->read_byte, unmap_pg -> offset);
+                //     } else {
+                //         lock_release(&filesys_lock);
+                //         return NULL;
+                //     }
+                // }
+                file_map_destroy(unmap_pg);
                 list_pop_front(page_mapped);
             }
 
@@ -236,15 +259,15 @@ do_munmap (void *addr) {
             file_close(tmp->file);
             free(tmp);
             // tmp = NULL;
-            lock_release(&filesys_lock);
+            // lock_release(&filesys_lock);
             return;
         } else {
-            lock_release(&filesys_lock);
+            // lock_release(&filesys_lock);
             return;
         }       
     }
     else {
-        lock_release(&filesys_lock);
+        // lock_release(&filesys_lock);
     }
     return;
 }
