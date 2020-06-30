@@ -17,15 +17,11 @@
 
 struct lock spt_lock;
 struct list lru_list;
-// struct hash lru_table;
 struct lock lru_lock;
 struct list_elem *lru_next = NULL;
 
 unsigned spt_hash_func (const struct hash_elem *p_, void *aux);
 bool spt_less_func (const struct hash_elem *a_,
-           const struct hash_elem *b_, void *aux);
-unsigned lru_hash_func (const struct hash_elem *p_, void *aux);
-bool lru_less_func (const struct hash_elem *a_,
            const struct hash_elem *b_, void *aux);
 
 void spt_destroy_func (struct hash_elem *e, void *aux);
@@ -35,7 +31,6 @@ vm_init (void) {
 	vm_anon_init ();
 	vm_file_init ();
     list_init(&lru_list);
-    // hash_init(&lru_table, lru_hash_func, lru_less_func, NULL);
     lock_init(&lru_lock);
 
 #ifdef EFILESYS  /* For project 4 */
@@ -116,7 +111,6 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 			return true;
 		} else {
             vm_dealloc_page(newPage);
-            // destroy(newPage);
 			goto err;
 		}
 	}
@@ -137,14 +131,12 @@ spt_find_page (struct supplemental_page_table *spt, void *va) {
     struct hash_elem *e = hash_find(&spt->vm, &page -> spt_elem);
     free(page);
     if(e == NULL) {
-        // free(page);
         lock_release(&spt_lock);
         return NULL;
     } else {
         lock_release(&spt_lock);
         return hash_entry(e, struct page, spt_elem);
     }
-	// return page;
 }
 
 /* Insert PAGE into spt with validation. */
@@ -166,7 +158,6 @@ spt_insert_page (struct supplemental_page_table *spt, struct page *page) {
 
 void
 spt_remove_page (struct supplemental_page_table *spt, struct page *page) {
-    // hash_delete(&spt->vm, &page->spt_elem);
 	vm_dealloc_page (page);
 	return true;
 }
@@ -175,7 +166,6 @@ spt_remove_page (struct supplemental_page_table *spt, struct page *page) {
 static struct frame *
 vm_get_victim (void) {
 	struct frame *victim = NULL;
-    // lock_acquire(&lru_lock);
 	 /* TODO: The policy for eviction is up to you. */
      if(lru_next == NULL) {
          lru_next = list_begin(&lru_list);
@@ -192,9 +182,7 @@ vm_get_victim (void) {
                 list_remove(&evict_check -> lru_elem);
                 lru_flg = 1;
                 lru_next = list_next(e);
-                // lock_release(&lru_lock);
                 return victim;
-                // break;
             } 
         }
         if(e==list_end(&lru_list)) {
@@ -250,7 +238,6 @@ vm_get_frame (void) {
 bool
 vm_stack_growth (void *addr, void *cur_rsp) {
     if(!vm_alloc_page_with_initializer(VM_ANON, pg_round_down(addr), true, NULL, NULL)) {
-        // printf("stack growth alloc fail\n");
         return false;
     }
     // printf("alloc success\n");
@@ -361,9 +348,7 @@ vm_do_claim_page (struct page *page) {
     }
     
     pml4_set_dirty(thread_current()->pml4, page -> va, false);
-    // lock_acquire(&lru_lock);
     list_push_back(&lru_list, &page -> lru_elem);
-    // lock_release(&lru_lock);
     // printf("claim succ : %x, pa : %x\n", frame -> uva, frame -> kva);
 	return swap_in (page, frame->kva);
 }
@@ -373,7 +358,6 @@ void
 supplemental_page_table_init (struct supplemental_page_table *spt) {
     lock_init(&spt_lock);
     hash_init(&spt->vm, spt_hash_func, spt_less_func, NULL);
-    // frame_table_init(&frame_table);
 }
 
 /* Copy supplemental page table from src to dst */
@@ -401,12 +385,6 @@ supplemental_page_table_copy (struct supplemental_page_table *dst, struct supple
                 }
 
                 child_aux -> load_file = parent_aux ->load_file;
-                // child_aux -> load_file = file_duplicate(parent_aux -> load_file);
-                // if(child_aux -> load_file  == NULL) {
-                //     // free(child_aux);
-                //     // printf("aux file null\n");
-                //     return false;
-                // }
                 child_aux -> load_ofs = parent_aux -> load_ofs;
                 child_aux->load_read_byte = parent_aux->load_read_byte;
                 child_aux -> load_zero_byte = parent_aux -> load_zero_byte;
@@ -435,7 +413,6 @@ supplemental_page_table_copy (struct supplemental_page_table *dst, struct supple
             return false;
         }
         if(alloc_check && not_uninit) {
-            // if(pml4_get_page(thread_current()->parent->pml4, page_it -> va)!=NULL) {
                 struct page *page_child = spt_find_page(dst, page_it -> va);
                 if (page_child == NULL) {
                     // printf("page null in claim\n");
@@ -468,31 +445,10 @@ spt_less_func (const struct hash_elem *a_,
   return a->va < b->va;
 }
 
-// unsigned
-// lru_hash_func (const struct hash_elem *p_, void *aux) {
-//   const struct page *p = hash_entry (p_, struct page, lru_elem);
-//   return hash_bytes (&p->va, sizeof p->va);
-// }
-
-// bool
-// lru_less_func (const struct hash_elem *a_,
-//            const struct hash_elem *b_, void *aux) {
-//   const struct page *a = hash_entry (a_, struct page, lru_elem);
-//   const struct page *b = hash_entry (b_, struct page, lru_elem);
-
-//   return a->va < b->va;
-// }
-
 void
 spt_destroy_func (struct hash_elem *e, void *aux) {
     struct page *page = hash_entry(e, struct page, spt_elem);
-    // enum vm_type type = VM_TYPE(page->operations->type);
-    // if (type != VM_UNINIT) {
-    //     free(page->frame);
-    // }
     if(page != NULL) {
-        // pml4_clear_page(thread_current()->pml4, page->va);
-        // destroy(page);
         vm_dealloc_page(page);
     } 
 }
@@ -501,10 +457,5 @@ void
 supplemental_page_table_kill (struct supplemental_page_table *spt) {
 	/* TODO: Destroy all the supplemental_page_table hold by thread and
 	 * TODO: writeback all the modified contents to the storage. */
-	// hash_destroy(&spt->vm, spt_destroy_func);
-    // lock_acquire(&spt_lock);
-	hash_destroy(&spt->vm, spt_destroy_func);
-    // lock_release(&spt_lock);
-    // free(spt);
-	// hash_destroy(&spt->vm, NULL);
+	hash_destroy(&spt->vm, spt_destroy_func);\
 }

@@ -97,7 +97,6 @@ process_fork (const char *name, struct intr_frame *if_ ) {
 	if(pid == TID_ERROR) {
 		thread_current() -> fork_flag = 0;
 		sema_up(&thread_current()->child_create);
-        // sema_up(&thread_current()->fork_wait_sema);
 	}
 	 sema_down(&thread_current() -> child_create);
 
@@ -209,9 +208,7 @@ __do_fork (void *aux) {
 	process_init ();
     
     sema_up(&thread_current()->parent->child_create);
-    // if(thread_current()-> parent->tid >1) {
     sema_down(&thread_current()->parent->fork_wait_sema);
-    // }
 	/* Finally, switch to the newly created process. */
 	if (succ) {
 		if_.R.rax = 0;
@@ -222,7 +219,6 @@ error:
     thread_current()->child_exit_status = -1;
 	thread_exit ();
 	sema_up(&thread_current()->parent->child_create);
-    // sema_up(&thread_current()->parent->fork_wait_sema);
 }
 
 /* Switch the current execution context to the f_name.
@@ -247,9 +243,7 @@ process_exec (void *f_name) {
         supplemental_page_table_init(&thread_current()->spt);
     #endif
 	/* And then load the binary */
-	// lock_acquire(&rox_lock);
 	success = load (file_name, &_if);
-    // lock_release(&rox_lock);
 	/* If load failed, quit. */
 	free(file_name);
 
@@ -279,7 +273,6 @@ process_wait (tid_t child_tid) {
 	/* XXX: Hint) The pintos exit if process_wait (initd), we recommend you
 	 * XXX:       to add infinite loop here before
 	 * XXX:       implementing the process_wait. */
-	// printf("wait child pid is : %d\n", child_tid);
     // printf("wait : !!!! curr name : %s, %d\n", thread_current()->name, child_tid);
     // printf("wait : %s %d\n", thread_current()->name, child_tid);
     if(child_tid == -1) {
@@ -329,7 +322,7 @@ process_wait (tid_t child_tid) {
         list_remove(e);
     }
 
-    // sema_up(&child_tmp->load_sema);
+    sema_up(&child_tmp->load_sema);
     return child_exit_status;
 }
 
@@ -341,7 +334,6 @@ process_exit (void) {
 	 * TODO: Implement process termination message (see
 	 * TODO: project2/process_termination.html).
 	 * TODO: We recommend you to implement process resource cleanup here. */
-    // printf("process exit\n");
     struct list *fd_list = &curr->fd_list;
 	int fd_size = list_size(fd_list);
 	if (fd_size > 0) {
@@ -360,12 +352,11 @@ process_exit (void) {
 
     if(curr->child_exit_status == -1 && curr -> parent-> fork_flag == 1) {    
         sema_up(&curr->parent->child_create);  
-        // sema_up(&curr->parent->fork_wait_sema);
         list_remove(&curr->child_elem);
     }  
 	process_cleanup ();
 	sema_up(&curr->exit_sema);
-    // sema_down(&curr->load_sema);
+    sema_down(&curr->load_sema);
 }
 
 /* Free the current process's resources. */
@@ -496,20 +487,14 @@ load (const char *file_name, struct intr_frame *if_) {
 	}
 
 	/* Open executable file. */
-    // lock_acquire(&rox_lock);
-    // lock_acquire(&filesys_lock);
-    // printf("file open : %s\n", cmd_parsing[0]);
 	file = filesys_open (cmd_parsing[0]);
 	if (file == NULL) {
-        // lock_release(&rox_lock);
 		printf ("load: %s: open failed\n", file_name);
-        // lock_release(&filesys_lock);
 		goto done;
 	}
 
     t->running_file = file;
     file_deny_write(file);
-    // lock_release(&rox_lock);
 
 	/* Read and verify executable header. */
 	if (file_read (file, &ehdr, sizeof ehdr) != sizeof ehdr
@@ -619,7 +604,6 @@ load (const char *file_name, struct intr_frame *if_) {
 
     palloc_free_page(argvaddr);
 	success = true;
-    // lock_release(&filesys_lock);
 done:
 	/* We arrive here whether the load is successful or not. */
 
@@ -796,6 +780,7 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 
 		/* Add the page to the process's address space. */
 		if (!install_page (upage, kpage, writable)) {
+			printf("fail\n");
 			palloc_free_page (kpage);
 			return false;
 		}
@@ -853,10 +838,8 @@ lazy_load_segment (struct page *page, void *aux) {
 	/* TODO: Load the segment from the file */
 	/* TODO: This called when the first page fault occurs on address VA. */
 	/* TODO: VA is available when calling this function. */
-    // lock_acquire(&filesys_lock);
     struct lazy_file *load = aux;
     void *kva = page->frame->kva;
-	// printf("lazy_load÷c\n");
     if(load != NULL) { 
         page->file_data = load -> load_file;
         page->offset = load -> load_ofs;
@@ -869,11 +852,6 @@ lazy_load_segment (struct page *page, void *aux) {
     if(load->mmapFlag) {
         list_push_back(&load->mmapStruct->mapped_page_list, &page -> page_elem);   
     }
-	// off_t reads = file_read(load -> load_file, kva, load -> load_read_byte);
-	// off_t reads =file_read_at(load -> load_file, kva, load->load_read_byte, load->load_ofs);
-    // printf("after file seek\n");
-    // if(reads!= load->load_read_byte) {
-	    // printf("read at fail read : %x, actual : %x off : %x\n", load -> load_read_byte, reads, load-> load_ofs);
   
     if(file_read_at(load -> load_file, kva, load->load_read_byte, load->load_ofs) != load->load_read_byte) {
         free(load);
@@ -881,7 +859,7 @@ lazy_load_segment (struct page *page, void *aux) {
     }
 
     memset(kva + load->load_read_byte, 0, load->load_zero_byte);
-    free(load);
+    // free(load);
     // printf("finish lazy load\n");
 	return true;
 }
@@ -926,7 +904,6 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
         lazy_file -> mmapStruct = NULL;
 		if (!vm_alloc_page_with_initializer (VM_ANON, upage, writable, lazy_load_segment, lazy_file)) {
             free(lazy_file); 
-            // lock_release(&filesys_lock);               
 			return false;
         }
 
@@ -950,7 +927,6 @@ setup_stack (struct intr_frame *if_) {
 	/* TODO: Your code goes here */
     // printf("setup stack\n");
     if(!vm_alloc_page_with_initializer(VM_ANON, stack_bottom, true, NULL, NULL)) {
-        // lock_release(&filesys_lock);
         // printf("alloc fail\n");
         return false;
     }
