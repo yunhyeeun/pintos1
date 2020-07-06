@@ -12,7 +12,7 @@ struct dir {
 	off_t pos;                          /* Current position. */
 };
 
-/* A single directory entry. */
+/* A single directory entry. */ 
 struct dir_entry {
 	disk_sector_t inode_sector;         /* Sector number of header. */
 	char name[NAME_MAX + 1];            /* Null terminated file name. */
@@ -24,7 +24,7 @@ struct dir_entry {
 bool
 dir_create (disk_sector_t sector, size_t entry_cnt) {
     // printf("[dir create function]\n");
-	return inode_create (sector, entry_cnt * sizeof (struct dir_entry));
+	return inode_create (sector, entry_cnt * sizeof (struct dir_entry), 1);
 }
 
 /* Opens and returns the directory for the given INODE, of which
@@ -83,7 +83,7 @@ lookup (const struct dir *dir, const char *name,
 		struct dir_entry *ep, off_t *ofsp) {
 	struct dir_entry e;
 	size_t ofs;
-
+    // printf("[lookup] name :  ")
 	ASSERT (dir != NULL);
 	ASSERT (name != NULL);
     off_t tmp;
@@ -113,10 +113,14 @@ dir_lookup (const struct dir *dir, const char *name,
 	ASSERT (dir != NULL);
 	ASSERT (name != NULL);
 
-	if (lookup (dir, name, &e, NULL))
+	if (lookup (dir, name, &e, NULL)) {
+        // printf("[dir lookup] success\n");
 		*inode = inode_open (e.inode_sector);
-	else
+    }
+	else {
+        // printf("[dir lookup] fail\n");
 		*inode = NULL;
+    }
 
 	return *inode != NULL;
 }
@@ -155,11 +159,9 @@ dir_add (struct dir *dir, const char *name, disk_sector_t inode_sector) {
     off_t tmp;
 	for (ofs = 0; tmp = inode_read_at (dir->inode, &e, sizeof e, ofs) == sizeof e;
 			ofs += sizeof e) {
-        // printf("[dir add function] inode read at : %d, size : %d\n", tmp, sizeof e);
 		if (!e.in_use)
 			break;
             }
-    // printf("[dir add function] after inode read at\n");
 	/* Write slot. */
 	e.in_use = true;
 	strlcpy (e.name, name, sizeof e.name);
@@ -167,6 +169,7 @@ dir_add (struct dir *dir, const char *name, disk_sector_t inode_sector) {
 	success = inode_write_at (dir->inode, &e, sizeof e, ofs) == sizeof e;
 
 done:
+    // printf("directory add : %d\n", success);
 	return success;
 }
 
@@ -192,6 +195,17 @@ dir_remove (struct dir *dir, const char *name) {
 	if (inode == NULL)
 		goto done;
 
+    if(inode_is_dir(inode)) {
+        //check whether file exist in dir
+        struct dir_entry e;
+        size_t ofs;
+        // printf("[lookup] sizeof e : %d\n", sizeof e);
+        for (ofs = 0; inode_read_at (inode, &e, sizeof e, ofs) == sizeof e; ofs += sizeof e) {
+            if(e.in_use) {
+                return false;
+            }
+        }
+    }
 	/* Erase directory entry. */
 	e.in_use = false;
 	if (inode_write_at (dir->inode, &e, sizeof e, ofs) != sizeof e)

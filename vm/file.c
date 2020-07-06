@@ -82,6 +82,7 @@ file_map_destroy (struct page *page) {
     if(pml4_is_dirty(thread_current()->pml4, page->va)) {
         if(page -> writable) {
             file_write_at(page->file_data, page->va, page->read_byte, page -> offset);
+            pml4_set_dirty(thread_current()->pml4, page->va, false);
         } else {
             lock_release(&filesys_lock);
             return NULL;

@@ -174,10 +174,11 @@ vm_get_victim (void) {
     int lru_flg = 0;
     while(victim == NULL) {
         struct page *evict_check = list_entry(e, struct page, lru_elem);
+        // printf("evict check va : %x\n", evict_check->va);
         if(pml4_is_accessed(thread_current()->pml4, evict_check -> va)) {
             pml4_set_accessed(thread_current() -> pml4, evict_check ->va, false);
         } else {
-            if(!lru_flg) {
+            if(!lru_flg && evict_check->va!=0) {
                 victim = evict_check -> frame;
                 list_remove(&evict_check -> lru_elem);
                 lru_flg = 1;

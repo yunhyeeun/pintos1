@@ -17,6 +17,9 @@
 #include "threads/synch.h"
 #include "filesys/inode.h"
 #include "userprog/process.h"
+#include "filesys/directory.h"
+#include "filesys/fat.h"
+
 #define STACK_GROWTH_LIMIT 0x100000
 
 void syscall_entry (void);
@@ -38,6 +41,11 @@ int syscall_wait (pid_t pid);
 static bool put_user (uint8_t *udst, uint8_t byte);
 void * syscall_mmap(void *addr, size_t length, int writable, int fd, off_t offset);
 void syscall_munmap(void *addr);
+bool syscall_chdir (const char *dir);
+bool syscall_mkdir (const char *dir);
+bool syscall_readdir (int fd, char *name);
+bool syscall_isdir (int fd);
+int syscall_inumber (int fd);
 struct lock filesys_lock;
 
 /* System call.
@@ -171,16 +179,31 @@ syscall_handler (struct intr_frame *f) {
             syscall_munmap(f->R.rdi);
             break;
         }
-        case SYS_CHDIR:
+        case SYS_CHDIR: {
+            bool chdir_ret = syscall_chdir(f->R.rdi);
+            f->R.rax = chdir_ret;
             break;
-        case SYS_MKDIR:
+        }
+        case SYS_MKDIR:{
+            bool mkdir_ret = syscall_mkdir(f->R.rdi);
+            f->R.rax = mkdir_ret;
             break;
-        case SYS_READDIR:
+        }
+        case SYS_READDIR:{
+            bool readdir_ret = syscall_readdir(f->R.rdi, f->R.rsi);
+            f->R.rax = readdir_ret;
             break;
-        case SYS_ISDIR:
+        }
+        case SYS_ISDIR:{
+            bool isdir_ret = syscall_isdir(f->R.rdi);
+            f->R.rax = isdir_ret;
             break;
-        case SYS_INUMBER:
+        }
+        case SYS_INUMBER:{
+            int inum_ret = syscall_inumber(f->R.rdi);
+            f->R.rax = inum_ret;
             break;
+        }
         default:
             thread_exit ();
             break;
@@ -192,7 +215,6 @@ userMemoryAcess_check(void *addr) {
     // printf("check addr : %x\n", addr);
     if(!is_user_vaddr(addr)) {
         //excess the valid range -> exit
-        // printf("kernel addr\n");
         syscall_exit(-1);
         return;
     } 
@@ -216,7 +238,7 @@ syscall_create(const char *file, unsigned initial_size) {
         return NULL;
     } else {
         bool create_check = filesys_create(file, initial_size);
-        // return filesys_create(file, initial_size);
+        // return (file, initial_size);
         // printf("create check : %d\n", create_check);
         return create_check;
     }
@@ -259,7 +281,11 @@ syscall_write (int fd, const void *buffer, unsigned size) {
         lock_release(&filesys_lock);
         return -1;
     } else {
-        int actual_write = file_write(open_file, buffer, size);
+        if(inode_is_dir(file_get_inode(open_file))) {
+            lock_release(&filesys_lock);
+            return -1;
+        }
+         int actual_write = file_write(open_file, buffer, size);
         lock_release(&filesys_lock);
         return actual_write;
     }
@@ -304,11 +330,11 @@ syscall_open (const char *file) {
     struct file* opened = filesys_open(file);
     
     if(opened == NULL) {
+        // printf("open file is null\n");
         lock_release(&filesys_lock);
         return -1;
     }
 
-    // printf("open file name : %s thread name : %s\n", file, thread_current()->name);
     if(!strcmp(thread_current()->name, file)) {
         file_deny_write(opened);
     } 
@@ -381,6 +407,80 @@ syscall_munmap(void *addr) {
     userMemoryAcess_check(addr);
     return do_munmap(addr);
 }
+ 
+bool 
+syscall_chdir (const char *dir) {
+    userMemoryAcess_check(dir);
+    lock_acquire(&filesys_lock);
+    char *file_name = calloc(1, strlen(dir) + 1);
+    // printf("[syscall chdir] before parse path\n");
+    struct dir *foundDir = parse_path(dir, file_name);
+    // printf("syscall chdir filename : %s, %d\n", file_name, inode_to_sector(dir_get_inode(foundDir)));
+    bool success = foundDir != NULL;
+    
+    if (success) {
+        if(strlen(file_name) != 0) {
+            struct inode *inode = NULL;
+            if(!dir_lookup(foundDir, file_name, &inode)) {
+                success = false;
+            } else {
+                if(thread_current()->curr_dir != NULL) {
+                    dir_close(thread_current()->curr_dir);
+                }
+                thread_current() -> curr_dir = dir_open(inode);
+                // printf("syscall chdir : %d\n", inode_to_sector(dir_get_inode(thread_current() -> curr_dir)));
+            }
+        }
+
+    }
+    free(file_name);
+    lock_release(&filesys_lock);
+    return success;
+}
+
+bool 
+syscall_mkdir (const char *dir) {
+    userMemoryAcess_check(dir);
+    lock_acquire(&filesys_lock);
+    bool success = filesys_create_dir(dir);
+    lock_release(&filesys_lock);
+    return success;
+}
+
+bool 
+syscall_readdir (int fd, char *name) {
+    userMemoryAcess_check(name);
+    struct file *file = process_get_file(fd);
+    if(file == NULL) {
+        syscall_exit(-1);
+    }
+
+    if(inode_is_dir(file_get_inode(file))) {
+        struct dir *dir = dir_reopen(file_get_inode(file));
+        bool result = dir_readdir(dir, name);
+        return result;
+    }
+}
+
+bool 
+syscall_isdir (int fd) {
+    struct file *file = process_get_file(fd);
+    if(file == NULL) {
+        syscall_exit(-1);
+    }
+
+    return inode_is_dir(file_get_inode(file));
+}
+
+int 
+syscall_inumber (int fd) {
+    struct file *file = process_get_file(fd);
+    if(file == NULL) {
+        syscall_exit(-1);
+    }
+    return inode_get_inumber(file_get_inode(file));
+}
+
 /* Writes BYTE to user address UDST.
  * UDST must be below KERN_BASE.
  * Returns true if successful, false if a segfault occurred. */

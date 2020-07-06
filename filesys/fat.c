@@ -135,7 +135,6 @@ fat_boot_create (void) {
 void
 fat_fs_init (void) {
 	/* TODO: Your code goes here. */
-    // printf("fs init function\n");
     fat_fs->fat_length = (fat_fs->bs.fat_sectors)*(DISK_SECTOR_SIZE/sizeof(cluster_t));
     fat_fs->data_start = fat_fs->bs.fat_start + fat_fs->bs.fat_sectors;
     fat_fs->last_clst = fat_fs->bs.fat_start;
@@ -153,7 +152,6 @@ fat_create_chain (cluster_t clst) {
 	/* TODO: Your code goes here. */
     //find a empty cluster in fat
     cluster_t empty_clst = fat_find_empty();
-    // printf("[fat create chain] empty_clst : %d\n", empty_clst);
     if(empty_clst == 0) {
         return 0;
     }
@@ -178,12 +176,15 @@ fat_create_chain (cluster_t clst) {
 void
 fat_remove_chain (cluster_t clst, cluster_t pclst) {
 	/* TODO: Your code goes here. */
-    // printf("fat remove chain\n");
+    // printf("fat_remove chain : %d\n", clst);
     cluster_t tmp = clst;
     while(*(fat_fs->fat + tmp -1) != EOChain) {
         cluster_t next = *(fat_fs->fat + tmp -1);
         fat_put(tmp, 0);
         tmp = next;
+        if(tmp == 0) {
+            break;
+        }
     }
     fat_put(tmp, 0);
 
@@ -210,8 +211,11 @@ fat_get (cluster_t clst) {
 
 cluster_t
 fat_find_empty (void) {
+
+    // printf("fat find empty : %d\n", fat_fs->fat_length);
     int empty_clst = -1;
     for(int i=fat_fs->last_clst;i<fat_fs->fat_length;i++) {
+    // for(int i=fat_fs->last_clst;i<fat_fs->fat_length;i++) {
         //0 : boot sector, 1 : root dir sec
         if(*(fat_fs -> fat + i -1) == 0) {
             empty_clst = i;

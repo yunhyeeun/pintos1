@@ -334,6 +334,12 @@ process_exit (void) {
 	 * TODO: Implement process termination message (see
 	 * TODO: project2/process_termination.html).
 	 * TODO: We recommend you to implement process resource cleanup here. */
+    if(curr->child_exit_status == -1 && curr -> parent-> fork_flag == 1) {    
+        sema_up(&curr->parent->child_create);  
+        list_remove(&curr->child_elem);
+    }  
+    curr->curr_dir = NULL;
+	process_cleanup ();
     struct list *fd_list = &curr->fd_list;
 	int fd_size = list_size(fd_list);
 	if (fd_size > 0) {
@@ -350,13 +356,9 @@ process_exit (void) {
 		file_close(curr->running_file);
 	}
 
-    if(curr->child_exit_status == -1 && curr -> parent-> fork_flag == 1) {    
-        sema_up(&curr->parent->child_create);  
-        list_remove(&curr->child_elem);
-    }  
-	process_cleanup ();
 	sema_up(&curr->exit_sema);
     sema_down(&curr->load_sema);
+    // process_cleanup ();
 }
 
 /* Free the current process's resources. */
