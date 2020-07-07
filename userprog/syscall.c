@@ -232,6 +232,7 @@ syscall_exit(int status) {
 bool 
 syscall_create(const char *file, unsigned initial_size) {
     userMemoryAcess_check(file);
+    // printf("syscall create : %s\n", file);
     if(file == NULL) {
         // printf("file null\n");
         syscall_exit(-1);
@@ -250,6 +251,7 @@ syscall_remove(const char *file) {
     if(file == NULL) {
         syscall_exit(-1);
     } else {
+        // printf("[syscall remove file name] : %s\n", file);
         return filesys_remove(file);
     }
 }
@@ -325,6 +327,7 @@ syscall_open (const char *file) {
     if(file == NULL) {
         //when file name is NULL, then return NULL
         return -1;
+
     }
     lock_acquire(&filesys_lock);
     struct file* opened = filesys_open(file);
@@ -450,33 +453,65 @@ syscall_mkdir (const char *dir) {
 bool 
 syscall_readdir (int fd, char *name) {
     userMemoryAcess_check(name);
-    struct file *file = process_get_file(fd);
-    if(file == NULL) {
-        syscall_exit(-1);
+    lock_acquire(&filesys_lock);
+    // printf("syscall_readdir : %s\n", name);
+    struct file_descriptor *file_descr = find_fd(&thread_current()->fd_list, fd);
+    if(file_descr == NULL) {
+        lock_release(&filesys_lock);
+        return false;
     }
 
-    if(inode_is_dir(file_get_inode(file))) {
-        struct dir *dir = dir_reopen(file_get_inode(file));
-        bool result = dir_readdir(dir, name);
-        return result;
+    struct file *file = file_descr ->file;
+    if(file_get_inode(file) == NULL) {
+        lock_release(&filesys_lock);
+        return false;
     }
+
+    if(file_descr -> dir != -1) {
+        struct dir *dir = file_descr -> dir;
+        bool res = dir_readdir(dir, name);
+        lock_release(&filesys_lock);  
+        // printf("readdir return!\n"); 
+        return res; 
+    } 
+    // else if(!file_descr -> dir && !thread_current()->curr_dir) {
+    //     struct dir *dir = dir_open_root();
+    //     bool res = dir_readdir(dir, name);
+    //     lock_release(&filesys_lock);   
+    //     printf("readdir return\n");
+    //     return res; 
+    // }
+    // struct file *file = process_get_file(fd);
+    // if(file == NULL) {
+    //     lock_release(&filesys_lock);
+    //     return false;
+    // }
+
+    // if(inode_is_dir(file_get_inode(file))) {
+    //     struct dir *dir = dir_reopen(file_get_inode(file));
+    //     bool result = dir_readdir(dir, name);
+    //     lock_release(&filesys_lock);
+    //     return result;
+    // }
+    lock_release(&filesys_lock);
+    return false;
 }
 
 bool 
 syscall_isdir (int fd) {
     struct file *file = process_get_file(fd);
     if(file == NULL) {
-        syscall_exit(-1);
+        return false;
     }
-
-    return inode_is_dir(file_get_inode(file));
+    bool result = inode_is_dir(file_get_inode(file));
+    return result;
 }
 
 int 
 syscall_inumber (int fd) {
     struct file *file = process_get_file(fd);
     if(file == NULL) {
-        syscall_exit(-1);
+        return false;
     }
     return inode_get_inumber(file_get_inode(file));
 }

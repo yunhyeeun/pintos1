@@ -19,8 +19,9 @@ fsutil_ls (char **argv UNUSED) {
 	char name[NAME_MAX + 1];
 
 	printf ("Files in the root directory:\n");
-	// dir = dir_open_root ();
-    dir = dir_open(inode_open(fat_fs->data_start + 1));
+	dir = dir_open_rootDir ();
+    // dir = dir_open(inode_open(fat_fs->data_start + 1));
+    // dir = dir_open(inode_open(fat_fs->data_start));
 	if (dir == NULL)
 		PANIC ("root dir open failed");
 	while (dir_readdir (dir, name))

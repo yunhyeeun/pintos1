@@ -9,9 +9,9 @@
 #ifdef VM
 #include "vm/vm.h"
 #endif
-#ifdef EFILESYS
+// #ifdef EFILESYS
 #include "filesys/directory.h"
-#endif
+// #endif
 
 /* States in a thread's life cycle. */
 enum thread_status {
@@ -36,6 +36,7 @@ struct file_descriptor {
     int fd;
     struct file *file;
     struct list_elem fd_elem;
+    struct dir *dir;
 };
 #endif
 
@@ -149,9 +150,9 @@ struct thread {
 
 #endif
 
-#ifdef EFILESYS
+// #ifdef EFILESYS
     struct dir *curr_dir;
-#endif
+// #endif
 
 	/* Owned by thread.c. */
 	struct intr_frame tf;               /* Information for switching */

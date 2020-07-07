@@ -20,6 +20,8 @@
 #include "threads/vaddr.h"
 #include "threads/synch.h"
 #include "intrinsic.h"
+#include "filesys/inode.h"
+#include "filesys/fat.h"
 #ifdef VM
 #include "vm/vm.h"  
 #include "vm/file.h"
@@ -198,6 +200,7 @@ __do_fork (void *aux) {
 		}
 		child_file_descr -> file = child_file;
         child_file_descr -> fd = parent_file_descr -> fd;
+        child_file_descr -> dir = parent_file_descr -> dir;
 
         list_push_back(child_fd_list, &child_file_descr->fd_elem);
 		if(current -> max_fd < child_file_descr -> fd) {
@@ -338,8 +341,12 @@ process_exit (void) {
         sema_up(&curr->parent->child_create);  
         list_remove(&curr->child_elem);
     }  
-    curr->curr_dir = NULL;
-	process_cleanup ();
+
+    // #ifdef EFILESYS
+    dir_close(thread_current()->curr_dir);
+    // #endif
+    // curr->curr_dir = NULL;
+	// process_cleanup ();
     struct list *fd_list = &curr->fd_list;
 	int fd_size = list_size(fd_list);
 	if (fd_size > 0) {
@@ -347,6 +354,9 @@ process_exit (void) {
 			struct file_descriptor *e = list_entry(list_begin(fd_list), struct file_descriptor, fd_elem);
 			list_pop_front(fd_list);
 			file_close(e->file);
+            if(e->dir!=-1){
+                dir_close(e->dir);
+            }
 			free(e);
 		}
 	}
@@ -355,10 +365,10 @@ process_exit (void) {
 		file_allow_write(curr->running_file);
 		file_close(curr->running_file);
 	}
-
+    
+    process_cleanup ();
 	sema_up(&curr->exit_sema);
     sema_down(&curr->load_sema);
-    // process_cleanup ();
 }
 
 /* Free the current process's resources. */
@@ -668,6 +678,14 @@ process_add_file (struct file *f) {
 		file_close(f);
 		return -1;
 	}
+    struct inode *inode = file_get_inode(f);
+    if(inode_is_dir(inode) && inode !=NULL) {
+        file_descr ->dir = dir_open(inode_reopen(inode));
+    } else {
+        // file_descr -> dir = NULL;
+        file_descr -> dir = -1;
+    }
+
 	file_descr -> fd = ++max_fd;
     file_descr -> file = f;
     list_push_back(&t->fd_list, &file_descr->fd_elem);
@@ -707,17 +725,20 @@ find_fd(struct list *fd_list, int fd){
 //close the file in file descriptor table
 void
 process_close_file (int fd) {
+    lock_acquire(&filesys_lock);
 	struct list *file_descr = &thread_current()->fd_list;
     int max_fd = thread_current() -> max_fd;
     if(max_fd == 2 || max_fd < fd) {
+        lock_release(&filesys_lock);
         return;
     }
 	struct file_descriptor *fd_descr = find_fd(file_descr, fd);
 	struct file *cur_file = fd_descr->file;
 	if (cur_file == NULL || fd_descr == NULL) {
+        lock_release(&filesys_lock);
 		return;
 	}
-	list_remove(&fd_descr->fd_elem);
+	// list_remove(&fd_descr->fd_elem);
 	if(fd == max_fd) {
 		if(list_empty(file_descr)) {
 			thread_current() -> max_fd = 2;
@@ -726,8 +747,15 @@ process_close_file (int fd) {
 		}
 	}
 	file_close(cur_file);
+    #ifdef EFILESYS
+    if(fd_descr ->dir != -1) {
+        dir_close(fd_descr -> dir);
+    }
+    #endif
+    list_remove(&fd_descr->fd_elem);
 	free(fd_descr);
-    
+    lock_release(&filesys_lock);
+    return;
 }
 
 

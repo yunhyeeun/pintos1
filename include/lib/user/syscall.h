@@ -14,7 +14,7 @@ typedef int off_t;
 #define MAP_FAILED ((void *) NULL)
 
 /* Maximum characters in a filename written by readdir(). */
-#define READDIR_MAX_LEN 14
+#define READDIR_MAX_LEN 100
 
 /* Typical return values from main() and arguments to exit(). */
 #define EXIT_SUCCESS 0          /* Successful execution. */

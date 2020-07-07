@@ -278,13 +278,13 @@ thread_create (const char *name, int priority,
 		// memcpy(&t->fork_tf,&running_thread()->fork_tf,sizeof(struct intr_frame));
     #endif
 
-    #ifdef EFILESYS
+    // #ifdef EFILESYS
         if(thread_current()->curr_dir != NULL) {
             t->curr_dir = dir_reopen(t->parent->curr_dir);
         } else {
             t->curr_dir = NULL;
         }
-    #endif
+    // #endif
 	/* Add to run queue. */
 	thread_unblock (t);
 	check_priority ();
@@ -766,9 +766,9 @@ init_thread (struct thread *t, const char *name, int priority) {
         // list_init(&t->lru_list);
     #endif
 
-    #ifdef EFILESYS
-        t-> curr_dir = NULL;
-    #endif
+    // #ifdef EFILESYS
+        // t-> curr_dir = NULL;
+    // #endif
     list_push_back(&all_list, &t->all_elem);
 }
 

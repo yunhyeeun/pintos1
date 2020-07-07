@@ -35,12 +35,12 @@ filesys_init (bool format) {
 	fat_open ();
 #else
 	/* Original FS */
-	// free_map_init ();
+	free_map_init ();
 
 	if (format)
 		do_format ();
 
-	// free_map_open ();
+	free_map_open ();
 #endif
 }
 
@@ -66,11 +66,13 @@ filesys_create (const char *name, off_t initial_size) {
     if(empty == 0) {
         return false;
     }
+    // printf("empty : %d %d\n", empty, fat_fs->fat_length);
     disk_sector_t inode_sector = cluster_to_sector(empty);
     char *path = malloc(strlen(name) + 1);
     memcpy(path, name, strlen(name) + 1);
     char *file_name = calloc(1, strlen(name) + 1);
     struct dir *dir = parse_path(path, file_name);
+    // printf("[filesys_create] dir inode sector : %d, file_name : %s\n", inode_get_inumber(dir_get_inode(dir)), file_name);
 
     if (strlen(file_name) == 0) {
         // printf("filename is null\n");
@@ -78,6 +80,7 @@ filesys_create (const char *name, off_t initial_size) {
         free(file_name);
         return false;
     }
+
 
 	bool success = (dir != NULL 
             && file_name != NULL
@@ -88,6 +91,8 @@ filesys_create (const char *name, off_t initial_size) {
     }
 	dir_close (dir);
     free(path);
+    // printf("[filesys create success?] : %d\n", success);
+
 	return success;
 }
 
@@ -101,23 +106,35 @@ filesys_open (const char *name) {
     char *path = malloc(strlen(name) + 1);
     memcpy(path, name, strlen(name) + 1);
     
+    // printf("filename : %s\n", name);
     char *file_name = calloc(1, strlen(name) + 1);
     struct dir *dir = parse_path(path, file_name);
+    // printf("filename : %s %d\n", file_name, inode_get_inumber(dir_get_inode(dir)));
+    // printf("[filesys open] dir inode sector : %d, file name : %s\n", inode_get_inumber(dir_get_inode(dir)), file_name);
+    // printf("[filesys open] data_start : %d\n", fat_fs->data_start);
     if (strlen(file_name) == 0 || file_name == NULL) {
         if(!strcmp((const char *)path, "/") && strlen(path) == 1) {
             free(file_name);
-            return file_open(inode_open(fat_fs->data_start + 1));
-        }
+            return file_open(inode_open(fat_fs->data_start));
+            // return file_open(inode_open(fat_fs->data_start));
+        } 
         dir_close(dir);
         free(file_name);
         return NULL;
     }
+
+    // if(!strcmp((const char *)path, ".") && strlen(path) == 1) {
+    //         // printf("path is .\n");
+    //         free(file_name);
+    //         return file_open(dir_get_inode(dir));
+    //         // return file_open(inode_open(fat_fs->data_start));
+    // }
   
 	struct inode *inode = NULL;
 
-	if (dir != NULL)
+	if (dir != NULL) {
 		dir_lookup (dir, file_name, &inode);
-    
+    }
 	dir_close (dir);
     free(path);
 	return file_open (inode);
@@ -133,15 +150,15 @@ filesys_remove (const char *name) {
     memcpy(path, name, strlen(name) + 1);
     char *file_name = calloc(1, strlen(name) + 1);
     struct dir *dir = parse_path(path, file_name);
-
+    // printf("[filesys_remove] dir inode sector : %d, file_name : %s\n", inode_get_inumber(dir_get_inode(dir)), file_name);
     if (strlen(file_name) == 0) {
         // printf("filename is null\n");
         dir_close(dir);
         free(file_name);
         return false;
     }
-	// bool success = dir != NULL && dir_remove (dir, name);
-	bool success = dir != NULL && file_name != NULL && dir_remove (dir, file_name);
+	bool success = dir != NULL && dir_remove (dir, file_name);
+	// bool success = dir != NULL && file_name != NULL && dir_remove (dir, file_name);
 	dir_close (dir);
     free(file_name);
 	return success;
@@ -162,33 +179,38 @@ struct dir *parse_path (char *path_name, char *file_name) {
     char *path = malloc(strlen(path_name) + 1);
     memcpy(path, path_name, strlen(path_name) + 1);
     if(path_name == '/') {
-        
-        dir = dir_open(inode_open(fat_fs->data_start + 1));
-        if (is_removed(dir_get_inode(dir))){
-            free(path);
-            dir_close(dir);
-            return NULL;
-        }
+        dir = dir_open_root();
+        // dir = dir_open(inode_open(fat_fs->data_start));
+        // dir = dir_open(inode_open(fat_fs->data_start));
+        // if (is_removed(dir_get_inode(dir))){
+        //     free(path);
+        //     dir_close(dir);
+        //     return NULL;
+        // }
+        free (path);
         return dir;
     }
 
     if(path_name[0] == '/') {
         //absolute
-        dir = dir_open(inode_open(fat_fs->data_start + 1));
+        // dir = dir_open(inode_open(fat_fs->data_start));
+        dir = dir_open_root();
+        // dir = dir_open(inode_open(fat_fs->data_start));
     } else {
+        // printf("this is relative path : %d\n", inode_get_inumber(dir_get_inode(dir)));
         if(thread_current() -> curr_dir == NULL) {
-            dir = dir_open(inode_open(fat_fs->data_start + 1));
-            // printf("root directory : %d\n", inode_to_sector( dir_get_inode(dir)));
+            // printf("current dir is root\n");
+            // dir = dir_open((inode_open(fat_fs->data_start)));
+            dir = dir_open_root();
+            // dir = dir_open(inode_open(fat_fs->data_start));
         } else {
             dir = dir_reopen(thread_current()->curr_dir);
-            // printf("existing direc : %d\n", inode_to_sector(dir_get_inode(dir)));
         }
+        // printf("this is relative path : %d %d\n", inode_get_inumber(dir_get_inode(dir)), disk_size(filesys_disk));
     }
 
     token = strtok_r(path, "/", &save_ptr); 
-    // printf("parse path : %s\n", token);
     while(token!=NULL){
-        // printf("token : %s\n", token);
         struct inode *inode = calloc(1, sizeof(struct inode *));
         if(token == '..') {
             inode = inode_open(inode_to_parent_sector(dir_get_inode(dir)));
@@ -202,8 +224,11 @@ struct dir *parse_path (char *path_name, char *file_name) {
             dir = parent_dir;
             token = strtok_r(NULL, "/", &save_ptr);
         } else if (token == '.') {
-            dir_close(dir);
+            // dir_close(dir);
             token = strtok_r(NULL, "/", &save_ptr);
+            if(token != NULL) {
+                dir_close(dir); 
+            }
         } else {
             if(dir_lookup(dir, token, &inode)) {
                 if(inode_is_dir(inode)) {
@@ -232,13 +257,10 @@ struct dir *parse_path (char *path_name, char *file_name) {
                         }
                         return dir;
                     } else {
-                        // printf("token not null : %d\n", inode_to_sector(dir_get_inode(dir)));
                         dir_close(dir); 
                         dir = next;
                     }
-                    // printf("next dir inode sector : %d\n", inode_to_sector(inode));
                 } else {
-                    // printf("[parse path] file\n");
                     if(strlen(token) > 14){ // file length must be lower than 14
                         free(path);
                         // file_name = NULL;
@@ -249,12 +271,9 @@ struct dir *parse_path (char *path_name, char *file_name) {
                 }
             } else {
                 char *next_ptr = strtok_r(NULL, "/", &save_ptr);  
-                // printf("look up fail\n");
                 if(next_ptr == NULL) {
                     if(strlen(token) > 14){ // file length must be lower than 14
-                        // printf("file name is long\n");
                         free(path);
-                        // file_name = NULL;
                         return NULL;
                     }
                     memcpy(file_name, token, strlen(token)+1);
@@ -295,6 +314,7 @@ filesys_create_dir (const char *name) {
     memcpy(path, name, strlen(name) + 1);
     char *file_name = calloc(1, strlen(name) + 1);
     struct dir *dir = parse_path(path, file_name);
+    // printf("[filesys_create_dir] dir inode sector : %d, file_name : %s\n", inode_get_inumber(dir_get_inode(dir)), file_name);
 
     if (strlen(file_name) == 0) {
         // printf("filename is null\n");
@@ -310,10 +330,33 @@ filesys_create_dir (const char *name) {
 	if (!success && inode_sector != 0)
         fat_remove_chain(sector_to_cluster(inode_sector), 0);
 	dir_close (dir);
+    // printf("[filesys create dir success?] : %d\n", success);
 	return success;
 }
 
 /* Formats the file system. */
+// static void
+// do_format (void) {
+// 	printf ("Formatting file system...");
+
+// #ifdef EFILESYS
+// 	/* Create FAT and save it to the disk. */
+// 	fat_create ();
+//     // printf("before root create : %d\n", fat_fs->data_start);
+//     if (!dir_create (cluster_to_sector(ROOT_DIR_CLUSTER), 16))
+// 		PANIC ("root directory creation failed");
+//     // printf("after root create : %d\n", fat_fs->data_start);
+// 	fat_close ();
+// #else
+// 	free_map_create ();
+//     // if (!dir_create (cluster_to_sector(ROOT_DIR_CLUSTER), 16))
+// 	if (!dir_create (ROOT_DIR_SECTOR, 16))
+// 		PANIC ("root directory creation failed");
+// 	free_map_close ();
+// #endif
+
+// 	printf ("done.\n");
+// }
 static void
 do_format (void) {
 	printf ("Formatting file system...");
@@ -321,14 +364,14 @@ do_format (void) {
 #ifdef EFILESYS
 	/* Create FAT and save it to the disk. */
 	fat_create ();
-    if (!dir_create (fat_fs->data_start+1, 16))
-		PANIC ("root directory creation failed");
+    // if (!dir_create (cluster_to_sector(ROOT_DIR_CLUSTER), 16))
+	// 	PANIC ("root directory creation failed");
 	fat_close ();
 #else
-	// free_map_create ();
+	free_map_create ();
 	if (!dir_create (ROOT_DIR_SECTOR, 16))
 		PANIC ("root directory creation failed");
-	// free_map_close ();
+	free_map_close ();
 #endif
 
 	printf ("done.\n");

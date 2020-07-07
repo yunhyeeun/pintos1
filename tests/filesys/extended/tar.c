@@ -15,7 +15,7 @@ main (int argc, char *argv[])
 {
   if (argc < 3)
     usage ();
-
+  
   return (make_tar_archive (argv[1], argv + 2, argc - 2)
           ? EXIT_SUCCESS : EXIT_FAILURE);
 }
@@ -168,7 +168,6 @@ archive_directory (char file_name[], size_t file_name_size, int file_fd,
       printf ("%s: file name too long\n", file_name);
       return false;
     }
-
   if (!write_header (file_name, '5', 0, 0755, archive_fd, write_error))
     return false;
       

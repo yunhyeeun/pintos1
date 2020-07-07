@@ -24,6 +24,7 @@ test_main (void)
   CHECK (chdir ("start"), "chdir \"start\"");
   for (i = 0; ; i++) 
     {
+      msg("i : %d\n", i);
       char name[3][READDIR_MAX_LEN + 1];
       char file_name[16], dir_name[16];
       char contents[128];
@@ -33,11 +34,15 @@ test_main (void)
       snprintf (file_name, sizeof file_name, "file%d", i);
       if (!create (file_name, 0))
         break;
+
       CHECK ((fd = open (file_name)) > 1, "open \"%s\"", file_name);
+      
       snprintf (contents, sizeof contents, "contents %d\n", i);
       if (write (fd, contents, strlen (contents)) != (int) strlen (contents)) 
         {
+            ASSERT(0);
           CHECK (remove (file_name), "remove \"%s\"", file_name);
+          ASSERT(0);
           close (fd);
           break;
         }

@@ -32,7 +32,7 @@
 #ifdef VM
 #include "vm/vm.h"
 #endif
-#ifdef FILESYS
+#ifdef EFILESYS
 #include "devices/disk.h"
 #include "filesys/filesys.h"
 #include "filesys/fsutil.h"
@@ -41,7 +41,7 @@
 /* Page-map-level-4 with kernel mappings only. */
 uint64_t *base_pml4;
 
-#ifdef FILESYS
+#ifdef EFILESYS
 /* -f: Format the file system? */
 static bool format_filesys;
 #endif
@@ -106,7 +106,7 @@ main (void) {
 	serial_init_queue ();
 	timer_calibrate ();
 
-#ifdef FILESYS
+#ifdef EFILESYS
 	/* Initialize file system. */
 	disk_init ();
 	filesys_init (format_filesys);

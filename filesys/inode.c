@@ -48,19 +48,12 @@ byte_to_sector (const struct inode *inode, off_t pos) {
 	ASSERT (inode != NULL);
 
     cluster_t inode_clst = sector_to_cluster(inode->data.start);
-    // printf("[byte to sector] : %d %d %d\n", inode->data.isdir, inode->data.start, inode->data.length);
     if (pos < inode->data.length) {
         cluster_t tmp = inode_clst;
-        // printf("[byte to sector] pos/DISK_SECTOR_SIZE : %d,pos : %d\n", pos/DISK_SECTOR_SIZE, pos);
         for(int i=0; i<pos/DISK_SECTOR_SIZE;i++) {
-            // printf("tmp before get : %d\n", tmp);
             tmp = fat_get(tmp);
-            // printf("tmp after get : %d\n", tmp);
         }
-        // printf("[byte to sector] result sec no : %d\n", cluster_to_sector(tmp));
         return cluster_to_sector(tmp);
-        // printf("inode->data.start + pos / DISK_SECTOR_SIZE : %d\n", inode->data.start + pos / DISK_SECTOR_SIZE);
-		// return inode->data.start + pos / DISK_SECTOR_SIZE;
 	}
 	else
 		return -1;
@@ -90,7 +83,7 @@ inode_create (disk_sector_t sector, off_t length, bool isdir) {
 	/* If this assertion fails, the inode structure is not exactly
 	 * one sector in size, and you should fix that. */
 	ASSERT (sizeof *disk_inode == DISK_SECTOR_SIZE);
-
+    // printf("inode create : %d %d\n", fat_fs->data_start, fat_fs->data_start+1);
 	disk_inode = calloc (1, sizeof *disk_inode);
 	if (disk_inode != NULL) {
 		size_t sectors = bytes_to_sectors (length);
@@ -101,76 +94,100 @@ inode_create (disk_sector_t sector, off_t length, bool isdir) {
 		if(isdir) {
             // printf("inode create is directory!!!!!!\n");
             if(thread_current()-> curr_dir == NULL){
-                disk_inode -> parent_dir = fat_fs->data_start + 1;
+                disk_inode -> parent_dir = cluster_to_sector(ROOT_DIR_CLUSTER);
             } else {
                 disk_inode -> parent_dir = inode_get_inumber(dir_get_inode(thread_current()->curr_dir));
             }
         }
 
 		cluster_t checkSector = sector_to_cluster(sector);
-		//root dir 
-        // printf("checksector : %d\n", checkSector);
-		if(checkSector == 1) {
-			disk_inode -> start = fat_fs->data_start;
-			disk_write (filesys_disk, sector, disk_inode);
-			success = true;
-		}
 
-		else {
-			if(fat_get(checkSector) == 0) {
-				// allocate 
-				fat_put(checkSector, EOChain);
-                // fat_create_chain(checkSector);
-				int cnt = 0;
+        if(fat_get(checkSector) == 0 || checkSector == ROOT_DIR_CLUSTER) {
+        // if(fat_get(checkSector) == 0) {
+            // allocate 
+            if(fat_get(checkSector) == 0 ) {
+                fat_put(checkSector, EOChain);
+            }
+            // fat_create_chain(checkSector);
+            int cnt = 0;
 
-				cluster_t tmp = 0;
-				for(int i=0;i<sectors;i++) {
-					tmp = fat_create_chain(tmp);   
-					if(tmp==0){
-						break;
-					}
-					if(i==0) {
-						disk_inode->start = cluster_to_sector(tmp);
-					}
-				}
+            cluster_t tmp = 0;
+            for(int i=0;i<sectors;i++) {
+                tmp = fat_create_chain(tmp);   
+                if(tmp==0){
+                    break;
+                }
+                if(i==0) {
+                    disk_inode->start = cluster_to_sector(tmp);
+                }
+            }
 
-				if(tmp == 0) {
-					disk_inode->start = 0;
-                    // printf("[inode create]tmp is zero\n");
-                    if(sectors>0) {
-                        // printf("[inode create] sectors are positive\n");
-					    success = false;		
+            if(tmp == 0) {
+                disk_inode->start = 0;
+                if(sectors == 0) {
+                    tmp = fat_create_chain(tmp);   
+                    if(tmp == 0) {
+                        // printf("disk is full\n");
+                        free (disk_inode);
+                        return false;
                     } else {
-                        tmp = fat_create_chain(tmp);   
                         disk_inode -> start = cluster_to_sector(tmp);
                         // printf("[inode create] sectors are zero : %d\n", disk_inode -> start);
                         disk_write(filesys_disk, sector, disk_inode);
                         success = true;
                     }
-				} else {
-					disk_write (filesys_disk, sector, disk_inode);
-				    if (sectors > 0) {
-						static char zeros[DISK_SECTOR_SIZE];
-						size_t i;
+                } else {
+                    free(disk_inode);
+                   return false;
+                }
+                // printf("[inode create]tmp is zero\n");
+                // if(sectors>0) {
+                //     // printf("[inode create] sectors are positive\n");
+                //     success = false;		
+                // } else {
+                //     tmp = fat_create_chain(tmp);   
+                //     if(tmp == 0) {
+                //         printf("disk is full\n");
+                //         free (disk_inode);
+                //         return false;
+                //     } else {
+                //         disk_inode -> start = cluster_to_sector(tmp);
+                //         // printf("[inode create] sectors are zero : %d\n", disk_inode -> start);
+                //         disk_write(filesys_disk, sector, disk_inode);
+                //         success = true;
+                //     }
+                // }
+            } else {
+                disk_write (filesys_disk, sector, disk_inode);
+                if (sectors > 0) {
+                    static char zeros[DISK_SECTOR_SIZE];
+                    size_t i;
 
-						disk_sector_t disk_tmp = disk_inode->start;
-						for (i = 0; i < sectors; i++) {
-							disk_write (filesys_disk, disk_tmp, zeros); 
-							cluster_t tmp = fat_get(sector_to_cluster(disk_tmp));
-							disk_tmp = cluster_to_sector(tmp);
-						}
-					}
-					success = true;
-				}
-				
-			} else {
-				success = false;
-			} 
-		}
+                    disk_sector_t disk_tmp = disk_inode->start;
+                    for (i = 0; i < sectors; i++) {
+                        if(disk_tmp > disk_size(filesys_disk)) {
+                            free(disk_inode);
+                            return false;
+                        } 
+                        disk_write (filesys_disk, disk_tmp, zeros); 
+                        cluster_t tmp = fat_get(sector_to_cluster(disk_tmp));
+                        disk_tmp = cluster_to_sector(tmp);
+                    }
+                }
+                success = true;
+            }
+            
+        } else {
+            // printf("disk is full\n");
+            free (disk_inode);
+            return false;
+        } 
+		// }
         // printf("root dir data start : %d\n", disk_inode->start);
 		free (disk_inode);
 
 	}
+    // printf("inode create : %d\n", success);
 	return success;
 }
 
@@ -232,6 +249,7 @@ inode_close (struct inode *inode) {
 	if (inode == NULL)
 		return;
 
+    // disk_write(filesys_disk, inode->sector, &inode->data);
 	/* Release resources if this was the last opener. */
 	if (--inode->open_cnt == 0) {
 		/* Remove from inode list and release lock. */
@@ -241,16 +259,6 @@ inode_close (struct inode *inode) {
 		if (inode->removed) {
 			// free_map_release (inode->sector, 1);
 			// free_map_release (inode->data.start,
-					// bytes_to_sectors (inode->data.length));
-            off_t bytes_written = 0;
-            cluster_t remove = sector_to_cluster(inode->data.start);
-            while (remove != EOChain) {
-                // printf("[inode close func] remove : %d\n", remove);
-                disk_write(filesys_disk, cluster_to_sector(remove), &inode->data + bytes_written);
-                remove = fat_get(remove);
-                bytes_written += DISK_SECTOR_SIZE;
-            } 
-            // disk_write(filesys_disk, cluster_to_sector(remove), &inode->data + bytes_written);
             fat_remove_chain(sector_to_cluster(inode->sector), 0);
             fat_remove_chain(sector_to_cluster(inode->data.start), 0);
 		}
@@ -272,7 +280,6 @@ inode_remove (struct inode *inode) {
  * than SIZE if an error occurs or end of file is reached. */
 off_t
 inode_read_at (struct inode *inode, void *buffer_, off_t size, off_t offset) {
-	// printf("[inode read at function]\n");
 	uint8_t *buffer = buffer_;
 	off_t bytes_read = 0;
 	uint8_t *bounce = NULL;
@@ -327,7 +334,6 @@ inode_read_at (struct inode *inode, void *buffer_, off_t size, off_t offset) {
 off_t
 inode_write_at (struct inode *inode, const void *buffer_, off_t size,
 		off_t offset) {
-    // printf("inode write at function : %d\n", inode->sector);
 	const uint8_t *buffer = buffer_;
 	off_t bytes_written = 0;
 	uint8_t *bounce = NULL;
@@ -340,8 +346,8 @@ inode_write_at (struct inode *inode, const void *buffer_, off_t size,
     if(sector_tmp == -1) {
         inode->data.length = size + offset;
         int len = size + offset;
-        
-        cluster_t tmp = sector_to_cluster(inode->data.start);
+        cluster_t tmp= sector_to_cluster(inode->data.start);
+		// printf("[inode write at] inode data.start : %d tmp : %x \n", inode->data.start, tmp);
         cluster_t prev;
         for(int i=0;i<len/DISK_SECTOR_SIZE;i++) {
             if(fat_get(tmp)==EOChain) {
@@ -349,7 +355,7 @@ inode_write_at (struct inode *inode, const void *buffer_, off_t size,
                 prev= tmp;
                 tmp = fat_create_chain(tmp);
                 if(tmp == 0) {
-                    fat_remove_chain(prev, 0);
+                    // fat_remove_chain(prev, 0);
                     inode->data.length = offset;
                     return 0;
                 }
@@ -357,13 +363,15 @@ inode_write_at (struct inode *inode, const void *buffer_, off_t size,
                 prev= tmp;
                 tmp = fat_get(tmp);
                 if(tmp == 0) {
-                    fat_remove_chain(prev, 0);
+                    // fat_remove_chain(prev, 0);
                     inode->data.length = offset;
                     return 0;
                 }
             }
         }
-
+        if(inode->sector > disk_size(filesys_disk)) {
+            return false;
+        } 
         disk_write(filesys_disk, inode->sector, &inode->data);
     }
     
@@ -406,6 +414,9 @@ inode_write_at (struct inode *inode, const void *buffer_, off_t size,
             else
                 memset (bounce, 0, DISK_SECTOR_SIZE);
             memcpy (bounce + sector_ofs, buffer + bytes_written, chunk_size);
+            if(sector_idx> disk_size(filesys_disk)) {
+                return false;
+            } 
             disk_write (filesys_disk, sector_idx, bounce); 
         }
     
@@ -421,7 +432,7 @@ inode_write_at (struct inode *inode, const void *buffer_, off_t size,
 
 /* Disables writes to INODE.
    May be called at most once per inode opener. */
-	void
+void
 inode_deny_write (struct inode *inode) 
 {
 	inode->deny_write_cnt++;
@@ -452,6 +463,11 @@ inode_is_dir (struct inode *inode) {
 disk_sector_t
 inode_to_parent_sector (struct inode *inode) {
     return inode->data.parent_dir;
+}
+
+disk_sector_t
+inode_to_data_start (struct inode *inode) {
+    return inode->data.start;
 }
 
 bool
