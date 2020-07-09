@@ -40,9 +40,7 @@ test_main (void)
       snprintf (contents, sizeof contents, "contents %d\n", i);
       if (write (fd, contents, strlen (contents)) != (int) strlen (contents)) 
         {
-            ASSERT(0);
           CHECK (remove (file_name), "remove \"%s\"", file_name);
-          ASSERT(0);
           close (fd);
           break;
         }

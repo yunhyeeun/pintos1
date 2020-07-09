@@ -12,6 +12,7 @@ void process_activate (struct thread *next);
 int process_add_file (struct file *f);
 void process_close_file (int fd); 
 struct file *process_get_file (int fd);
+struct file *check_file (struct file *file);
 struct file_descriptor* 
 find_fd(struct list *fd_list, int fd);
 bool

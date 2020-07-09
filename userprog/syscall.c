@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <list.h>
 #include <syscall-nr.h>
 #include "threads/interrupt.h"
 #include "threads/thread.h"
@@ -204,6 +205,11 @@ syscall_handler (struct intr_frame *f) {
             f->R.rax = inum_ret;
             break;
         }
+        case SYS_SYMLINK:{
+            int symlink_ret = syscall_symlink(f->R.rdi, f->R.rsi);
+            f->R.rax = symlink_ret;
+            break;
+        }
         default:
             thread_exit ();
             break;
@@ -249,8 +255,10 @@ bool
 syscall_remove(const char *file) {
     userMemoryAcess_check(file);
     if(file == NULL) {
+        // printf("[syscall remove] file is null\n]");
         syscall_exit(-1);
     } else {
+        // printf("syscall_remove!\n");
         // printf("[syscall remove file name] : %s\n", file);
         return filesys_remove(file);
     }
@@ -287,9 +295,12 @@ syscall_write (int fd, const void *buffer, unsigned size) {
             lock_release(&filesys_lock);
             return -1;
         }
-         int actual_write = file_write(open_file, buffer, size);
+        // printf("[syscal write] open_file inode sector no : %d\n", inode_get_inumber(file_get_inode(open_file)));
+        
+        int actual_write = file_write(open_file, buffer, size);
         lock_release(&filesys_lock);
         return actual_write;
+        
     }
 }
 
@@ -302,6 +313,7 @@ syscall_read (int fd, void *buffer, unsigned size) {
         syscall_exit(-1);
     }
     lock_acquire(&filesys_lock);
+    // printf("[syscall read] start!\n");
     if(fd == 0) {
         for(int i=0;i<size;i++) {
             put_user((uint8_t *)buffer, input_getc());
@@ -318,7 +330,6 @@ syscall_read (int fd, void *buffer, unsigned size) {
         lock_release(&filesys_lock);
         return actual_read;
     }
-
 } 
 
 int
@@ -333,15 +344,31 @@ syscall_open (const char *file) {
     struct file* opened = filesys_open(file);
     
     if(opened == NULL) {
-        // printf("open file is null\n");
         lock_release(&filesys_lock);
         return -1;
     }
-
     if(!strcmp(thread_current()->name, file)) {
         file_deny_write(opened);
-    } 
-
+    }
+    #ifdef EFILESYS
+        if (!get_symlinkFlg(file_get_inode(opened))) {
+            int fd_add = process_add_file(opened);
+            lock_release(&filesys_lock);
+            return fd_add;
+        } else {
+            struct list_elem *e;
+            struct list *fd_list = &thread_current() ->fd_list;
+            for(e=list_begin(fd_list);e!=list_end(fd_list);e = list_next(e)){
+                struct file_descriptor *file_descr = list_entry(e, struct file_descriptor, fd_elem);
+                if(inode_to_data_start(file_get_inode(file_descr->file)) == inode_to_data_start(file_get_inode(opened))) {
+                    lock_release(&filesys_lock);
+                    return file_descr->fd;
+                }
+            }
+            lock_release(&filesys_lock);
+            return -1;
+        }
+    #endif
     int fd_add = process_add_file(opened);
     lock_release(&filesys_lock);
     return fd_add;
@@ -349,6 +376,7 @@ syscall_open (const char *file) {
 
 void
 syscall_close (int fd) {
+    // printf("[syscall close] start!\n");
     process_close_file(fd);
 }
 
@@ -418,13 +446,37 @@ syscall_chdir (const char *dir) {
     char *file_name = calloc(1, strlen(dir) + 1);
     // printf("[syscall chdir] before parse path\n");
     struct dir *foundDir = parse_path(dir, file_name);
+    if (dir != NULL) {
+    // printf("[syscall chdir] parse path filename : %s, dir : %d\n", file_name, inode_get_inumber(dir_get_inode(foundDir)));
+    } else {
+        // printf("[syscall chdir] parse path filename: %s, dir is null\n", file_name);
+    }
     // printf("syscall chdir filename : %s, %d\n", file_name, inode_to_sector(dir_get_inode(foundDir)));
     bool success = foundDir != NULL;
-    
+    if (strcmp(dir, "..") == 0) {
+        if(thread_current()->curr_dir != NULL) {
+            dir_close(thread_current()->curr_dir);
+        }
+        disk_sector_t parent_dir_sector = inode_to_parent_sector(dir_get_inode(foundDir));
+        if (parent_dir_sector != NULL) {
+            struct inode* parent_inode = inode_open(parent_dir_sector);
+            if (parent_inode == NULL) {
+                success = false;
+            } else {
+                thread_current()->curr_dir = dir_open(parent_inode);
+            }
+        } else {
+            success = false;
+        }
+        free(file_name);
+        lock_release(&filesys_lock);
+        return success;
+    }
     if (success) {
         if(strlen(file_name) != 0) {
             struct inode *inode = NULL;
             if(!dir_lookup(foundDir, file_name, &inode)) {
+                // printf("[syscall chdir] dir lookup fail\n");
                 success = false;
             } else {
                 if(thread_current()->curr_dir != NULL) {
@@ -474,25 +526,6 @@ syscall_readdir (int fd, char *name) {
         // printf("readdir return!\n"); 
         return res; 
     } 
-    // else if(!file_descr -> dir && !thread_current()->curr_dir) {
-    //     struct dir *dir = dir_open_root();
-    //     bool res = dir_readdir(dir, name);
-    //     lock_release(&filesys_lock);   
-    //     printf("readdir return\n");
-    //     return res; 
-    // }
-    // struct file *file = process_get_file(fd);
-    // if(file == NULL) {
-    //     lock_release(&filesys_lock);
-    //     return false;
-    // }
-
-    // if(inode_is_dir(file_get_inode(file))) {
-    //     struct dir *dir = dir_reopen(file_get_inode(file));
-    //     bool result = dir_readdir(dir, name);
-    //     lock_release(&filesys_lock);
-    //     return result;
-    // }
     lock_release(&filesys_lock);
     return false;
 }
@@ -514,6 +547,65 @@ syscall_inumber (int fd) {
         return false;
     }
     return inode_get_inumber(file_get_inode(file));
+}
+
+int
+syscall_symlink (char *target, char *linkpath) {
+    lock_acquire(&filesys_lock);
+    // printf("[syscall symlink] start!\n");
+    bool result = filesys_create(linkpath, 0);
+    if (!result) {
+        lock_release(&filesys_lock);
+        return -1;
+    }
+    struct file *targetfile = filesys_open(target);
+    if (targetfile == NULL) {
+        lock_release(&filesys_lock);
+        return -1;
+    }
+    int fd = process_add_file(targetfile);
+    struct file *softfile = filesys_open(linkpath);
+    if (softfile == NULL) {
+        // printf("[symlink] softfile open fail\n");
+        lock_release(&filesys_lock);
+        return -1;
+    }
+    // void *buffer = calloc(1, DISK_SECTOR_SIZE);
+    struct inode *targetinode = file_get_inode(targetfile);
+    struct inode *softinode = file_get_inode(softfile);
+
+    struct inode_disk *buffer = calloc(1, sizeof *buffer);
+    if (buffer == NULL) {
+        lock_release(&filesys_lock);
+        return -1;
+    }
+
+    buffer->start = inode_to_data_start(targetinode);
+    buffer->length = 0;
+    buffer->magic = INODE_MAGIC;
+    buffer->isdir = inode_is_dir(targetinode);
+    buffer->parent_dir = inode_to_parent_sector(targetinode);
+    buffer->symlinkFlg = true;
+
+    disk_write(filesys_disk, inode_get_inumber(softinode), buffer);
+    struct inode *tmp_inode = calloc(1, sizeof *tmp_inode);
+    disk_read(filesys_disk, inode_get_inumber(softinode), &tmp_inode->data);
+    memcpy(&softinode->data, &tmp_inode->data, sizeof (struct inode_disk));
+    // memcpy(tmp, softinode, sizeof (struct inode));
+    // tmp->issymlink = 1;
+    // memcpy(softinode, tmp, sizeof (struct inode));
+    // file_close(softfile);
+    // file_close(targetfile);
+    // printf("[symlink] targetinode sector : %d data start : %d\n", inode_get_inumber(targetinode), inode_to_data_start(targetinode));
+    // printf("[symlink] softinode sector : %d data start : %d\n", inode_get_inumber(softinode), inode_to_data_start(softinode));
+    // // printf("buffer : %s\n", buffer);
+    // if(!set_symlinkFlg (buffer, softinode)){
+    //     return -1;
+    // }
+    free(buffer);
+    free(tmp_inode);
+    lock_release(&filesys_lock);
+    return 0;
 }
 
 /* Writes BYTE to user address UDST.

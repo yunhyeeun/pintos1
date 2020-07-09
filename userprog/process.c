@@ -710,6 +710,18 @@ struct file *process_get_file (int fd) {
     }
 }
 
+struct file *check_file (struct file *file) {
+	struct list_elem *e;
+    struct list *fd_list = &thread_current() ->fd_list;
+    for(e=list_begin(fd_list);e!=list_end(fd_list);e = list_next(e)){
+        struct file_descriptor *file_descr = list_entry(e, struct file_descriptor, fd_elem);
+        if(inode_get_inumber(file_get_inode(file_descr->file)) == inode_get_inumber(file_get_inode(file))) {
+            return true;
+        }
+    }
+	return false;
+}
+
 struct file_descriptor* 
 find_fd(struct list *fd_list, int fd){
     struct list_elem *e;
@@ -730,14 +742,22 @@ process_close_file (int fd) {
     int max_fd = thread_current() -> max_fd;
     if(max_fd == 2 || max_fd < fd) {
         lock_release(&filesys_lock);
-        return;
+		return;
     }
 	struct file_descriptor *fd_descr = find_fd(file_descr, fd);
+	if (fd_descr == NULL) {
+		lock_release(&filesys_lock);
+		return;
+	}
+	// printf("[process close file] after find fd\n");
 	struct file *cur_file = fd_descr->file;
-	if (cur_file == NULL || fd_descr == NULL) {
+	// printf("[process close file] after cur file\n");
+	if (cur_file == NULL) {
+		// printf("cur file is null\n");
         lock_release(&filesys_lock);
 		return;
 	}
+	// printf("cur file is not null\n");
 	// list_remove(&fd_descr->fd_elem);
 	if(fd == max_fd) {
 		if(list_empty(file_descr)) {
@@ -746,11 +766,12 @@ process_close_file (int fd) {
 			thread_current()->max_fd = fd-1;
 		}
 	}
+	// printf("[process close file] before file close \n");
 	file_close(cur_file);
     #ifdef EFILESYS
-    if(fd_descr ->dir != -1) {
-        dir_close(fd_descr -> dir);
-    }
+		if(fd_descr ->dir != -1) {
+			dir_close(fd_descr -> dir);
+		}
     #endif
     list_remove(&fd_descr->fd_elem);
 	free(fd_descr);

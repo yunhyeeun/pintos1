@@ -2,8 +2,42 @@
 #define FILESYS_INODE_H
 
 #include <stdbool.h>
+#include <list.h>
+#include <debug.h>
+#include <round.h>
+#include <string.h>
 #include "filesys/off_t.h"
 #include "devices/disk.h"
+#include "filesys/filesys.h"
+#include "filesys/free-map.h"
+#include "threads/malloc.h"
+#include "filesys/fat.h"
+#include "threads/thread.h"
+
+/* Identifies an inode. */
+#define INODE_MAGIC 0x494e4f44
+/* On-disk inode.
+//  * Must be exactly DISK_SECTOR_SIZE bytes long. */
+struct inode_disk {
+	disk_sector_t start;                /* First data sector. */
+	off_t length;                       /* File size in bytes. */
+    bool isdir;
+    int symlinkFlg;
+    disk_sector_t parent_dir;
+	unsigned magic;                     /* Magic number. */
+	uint32_t unused[122];
+};
+
+// /* In-memory inode. */
+struct inode {
+	struct list_elem elem;              /* Element in inode list. */
+	disk_sector_t sector;               /* Sector number of disk location. */
+	int open_cnt;                       /* Number of openers. */
+	bool removed;                       /* True if deleted, false otherwise. */
+	int deny_write_cnt;  				/* 0: writes ok, >0: deny writes. */
+	int issymlink;               
+	struct inode_disk data;             /* Inode content. */
+};
 
 struct bitmap;
 
@@ -21,6 +55,8 @@ void inode_deny_write (struct inode *);
 void inode_allow_write (struct inode *);
 off_t inode_length (const struct inode *);
 disk_sector_t inode_to_parent_sector (struct inode *inode);
+disk_sector_t inode_to_data_start (struct inode *inode);
 bool inode_is_dir (struct inode *inode);
 bool is_removed (struct inode *inode);
+bool get_symlinkFlg (struct inode *inode);
 #endif /* filesys/inode.h */
